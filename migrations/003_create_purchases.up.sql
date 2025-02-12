@@ -1,0 +1,7 @@
+CREATE TABLE purchases (
+   id SERIAL PRIMARY KEY,
+   user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+   item VARCHAR(50) NOT NULL,
+   price INTEGER NOT NULL,
+   purchase_date TIMESTAMP WITH TIME ZONE DEFAULT now()
+);

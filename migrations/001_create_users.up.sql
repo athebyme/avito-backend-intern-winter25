@@ -1,0 +1,7 @@
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    coins INTEGER NOT NULL DEFAULT 1000,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);

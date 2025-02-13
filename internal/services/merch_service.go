@@ -1,10 +1,13 @@
 package services
 
 import (
-	"avito-backend-intern-winter25/internal/models"
+	"avito-backend-intern-winter25/internal/models/domain"
 	"avito-backend-intern-winter25/internal/storage"
+	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"log"
 	"time"
 )
 
@@ -33,26 +36,25 @@ func NewMerchService(
 	}
 }
 
-func (s *MerchService) PurchaseItem(userID int64, itemName string) error {
-	item, err := s.merchRepo.FindByName(itemName)
+func (s *MerchService) PurchaseItem(ctx context.Context, userID int64, itemName string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return storage.ErrMerchNotFound
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer func(tx *sql.Tx) {
-		err := tx.Rollback()
-		if err != nil {
-			panic(err)
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			log.Printf("rollback error: %v", err)
 		}
-	}(tx)
+	}()
 
-	user, err := s.userRepo.FindByID(userID)
+	item, err := s.merchRepo.FindByName(ctx, itemName)
 	if err != nil {
-		return err
+		return fmt.Errorf("merch not found: %w", err)
+	}
+
+	user, err := s.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("user not found: %w", err)
 	}
 
 	if user.Coins < item.Price {
@@ -60,20 +62,22 @@ func (s *MerchService) PurchaseItem(userID int64, itemName string) error {
 	}
 
 	user.Coins -= item.Price
-	if err := s.userRepo.Update(user); err != nil {
-		return err
+	if err := s.userRepo.Update(ctx, tx, user); err != nil {
+		return fmt.Errorf("failed to update user: %w", err)
 	}
 
-	purchase := &models.Purchase{
+	if err := s.purchaseRepo.Create(ctx, tx, &domain.Purchase{
 		UserID:       userID,
 		Item:         item.Name,
 		Price:        item.Price,
 		PurchaseDate: time.Now(),
+	}); err != nil {
+		return fmt.Errorf("failed to create purchase: %w", err)
 	}
 
-	if err := s.purchaseRepo.Create(purchase); err != nil {
-		return err
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit failed: %w", err)
 	}
 
-	return tx.Commit()
+	return nil
 }

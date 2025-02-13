@@ -1,10 +1,12 @@
 package services
 
 import (
-	"avito-backend-intern-winter25/internal/models"
+	"avito-backend-intern-winter25/internal/models/domain"
 	"avito-backend-intern-winter25/internal/storage"
+	"context"
 	"database/sql"
 	"errors"
+	"log"
 	"time"
 )
 
@@ -30,7 +32,7 @@ func NewTransactionService(
 	}
 }
 
-func (s *TransactionService) TransferCoins(fromUserID, toUserID int64, amount int) error {
+func (s *TransactionService) TransferCoins(ctx context.Context, fromUserID, toUserID int64, amount int) error {
 	if amount < 0 {
 		return ErrInvalidAmount
 	}
@@ -39,9 +41,13 @@ func (s *TransactionService) TransferCoins(fromUserID, toUserID int64, amount in
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			log.Printf("rollback error: %v", err)
+		}
+	}()
 
-	fromUser, err := s.userRepo.FindByID(fromUserID)
+	fromUser, err := s.userRepo.FindByID(ctx, fromUserID)
 	if err != nil {
 		return err
 	}
@@ -50,7 +56,7 @@ func (s *TransactionService) TransferCoins(fromUserID, toUserID int64, amount in
 		return ErrLackOfFundsOnAccount
 	}
 
-	toUser, err := s.userRepo.FindByID(toUserID)
+	toUser, err := s.userRepo.FindByID(ctx, toUserID)
 	if err != nil {
 		return storage.ErrUserNotFound
 	}
@@ -58,21 +64,21 @@ func (s *TransactionService) TransferCoins(fromUserID, toUserID int64, amount in
 	fromUser.Coins -= amount
 	toUser.Coins += amount
 
-	if err := s.userRepo.Update(fromUser); err != nil {
+	if err := s.userRepo.Update(ctx, tx, fromUser); err != nil {
 		return err
 	}
-	if err := s.userRepo.Update(toUser); err != nil {
+	if err := s.userRepo.Update(ctx, tx, toUser); err != nil {
 		return err
 	}
 
-	transaction := &models.CoinTransaction{
+	transaction := &domain.CoinTransaction{
 		FromUserID: fromUserID,
 		ToUserID:   toUserID,
 		Amount:     amount,
 		CreatedAt:  time.Now(),
 	}
 
-	if err := s.transactionRepo.Create(transaction); err != nil {
+	if err := s.transactionRepo.Create(ctx, tx, transaction); err != nil {
 		return err
 	}
 

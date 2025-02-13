@@ -38,5 +38,16 @@ services:
       start_period: 10s
     networks:
       - internal
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - internal
+    depends_on:
+      - avito-shop-service
 networks:
   internal:

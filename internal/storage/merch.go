@@ -1,7 +1,8 @@
 package storage
 
 import (
-	"avito-backend-intern-winter25/internal/models"
+	"avito-backend-intern-winter25/internal/models/domain"
+	"context"
 	"errors"
 )
 
@@ -11,5 +12,5 @@ var (
 )
 
 type MerchRepository interface {
-	FindByName(name string) (models.Merch, error)
+	FindByName(ctx context.Context, name string) (*domain.Merch, error)
 }

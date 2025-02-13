@@ -2,14 +2,16 @@ package main
 
 import (
 	"avito-backend-intern-winter25/config"
-	"avito-backend-intern-winter25/internal/services"
-	"avito-backend-intern-winter25/internal/storage/postgres"
-	"database/sql"
+	"avito-backend-intern-winter25/internal/handlers"
+	"avito-backend-intern-winter25/internal/middleware"
 	"errors"
 	"fmt"
+	"github.com/gin-gonic/gin"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
 	"log"
 )
 
@@ -44,42 +46,33 @@ func main() {
 	}
 	log.Println("Миграции успешно применены!")
 
-	db, err := sql.Open("postgres", connectionString)
-	if err != nil {
-		log.Fatal(err)
-	}
+	// Инициализация логгера
+	logger, _ := zap.NewProduction()
+	defer logger.Sync()
 
-	userRepo := postgres.NewUserRepository(db)
-	userService := services.NewUserService(userRepo)
-	login, err := userService.Login("rizz_god", "hello world !")
-	login2, err := userService.Login("sigma", "hello world !")
-	if err != nil {
-		log.Fatal(err)
-	}
+	r := gin.New()
 
-	log.Printf("Hello, %s ! %d  %d %s", login.Username, login.ID, login.Coins, login.CreatedAt)
-
-	transactionRepo := postgres.NewTransactionRepository(db)
-	transactionService := services.NewTransactionService(
-		db,
-		userRepo,
-		transactionRepo,
+	// Мидлвари
+	r.Use(
+		middleware.Logging(logger),
+		middleware.Prometheus(),
+		gin.Recovery(),
 	)
 
-	err = transactionService.TransferCoins(login.ID, login2.ID, 1000)
-	if err != nil {
-		log.Fatal(err)
+	// Эндпоинт для метрик Prometheus
+
+	r := gin.Default()
+
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	authGroup := r.Group("/api")
+	authGroup.Use(middleware.Auth())
+	{
+		authGroup.GET("/info", handlers.UserHandler)
+		authGroup.POST("/sendCoin", handlers.SendCoins)
+		authGroup.GET("/buy/:item", handlers.BuyItem)
 	}
-	log.Printf("OK")
 
-	purchaseRepo := postgres.NewPurchaseRepository(db)
-	merchRepo := postgres.NewMerchRepository(db)
-	merchService := services.NewMerchService(
-		merchRepo,
-		purchaseRepo,
-		userRepo,
-		db,
-	)
+	r.POST("/api/auth", handlers.Auth)
 
-	merchService.PurchaseItem(login2.ID, "")
+	r.Run(":8080")
 }

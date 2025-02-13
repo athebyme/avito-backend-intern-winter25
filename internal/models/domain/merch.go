@@ -1,4 +1,4 @@
-package models
+package domain
 
 type Merch struct {
 	Id    int

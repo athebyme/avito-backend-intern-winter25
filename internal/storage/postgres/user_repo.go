@@ -1,10 +1,12 @@
 package postgres
 
 import (
-	"avito-backend-intern-winter25/internal/models"
+	"avito-backend-intern-winter25/internal/models/domain"
 	"avito-backend-intern-winter25/internal/storage"
+	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -18,7 +20,19 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 	}
 }
 
-func (r *UserRepository) Create(user *models.User) error {
+func (r *UserRepository) BeginTx(ctx context.Context) (*sql.Tx, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	return tx, nil
+}
+
+func (r *UserRepository) Create(ctx context.Context, tx *sql.Tx, user *domain.User) error {
+	if tx == nil {
+		return errors.New("tx is nil")
+	}
+
 	query := `
         INSERT INTO users (username, password_hash, coins, created_at)
         VALUES ($1, $2, $3, $4) RETURNING id
@@ -26,16 +40,23 @@ func (r *UserRepository) Create(user *models.User) error {
 	if user.CreatedAt.IsZero() {
 		user.CreatedAt = time.Now()
 	}
-	return r.db.QueryRow(query, user.Username, user.PasswordHash, user.Coins, user.CreatedAt).Scan(&user.ID)
+	return tx.QueryRowContext(ctx, query, user.Username, user.PasswordHash, user.Coins, user.CreatedAt).Scan(&user.ID)
 }
 
-func (r *UserRepository) FindByID(id int64) (*models.User, error) {
+func (r *UserRepository) FindByID(ctx context.Context, tx *sql.Tx, id int64) (*domain.User, error) {
 	query := `
         SELECT id, username, password_hash, coins, created_at
         FROM users WHERE id = $1
     `
-	row := r.db.QueryRow(query, id)
-	var user models.User
+	var row *sql.Row
+
+	if tx != nil {
+		row = tx.QueryRowContext(ctx, query, id)
+	} else {
+		row = r.db.QueryRowContext(ctx, query, id)
+	}
+
+	var user domain.User
 	err := row.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Coins, &user.CreatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -46,13 +67,13 @@ func (r *UserRepository) FindByID(id int64) (*models.User, error) {
 	return &user, nil
 }
 
-func (r *UserRepository) FindByUsername(username string) (*models.User, error) {
+func (r *UserRepository) FindByUsername(ctx context.Context, username string) (*domain.User, error) {
 	query := `
         SELECT id, username, password_hash, coins, created_at
         FROM users WHERE username = $1
     `
-	row := r.db.QueryRow(query, username)
-	var user models.User
+	row := r.db.QueryRowContext(ctx, query, username)
+	var user domain.User
 	err := row.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Coins, &user.CreatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -63,21 +84,34 @@ func (r *UserRepository) FindByUsername(username string) (*models.User, error) {
 	return &user, nil
 }
 
-func (r *UserRepository) Update(user *models.User) error {
+func (r *UserRepository) Update(ctx context.Context, tx *sql.Tx, user *domain.User) error {
 	query := `
         UPDATE users SET username=$1, password_hash=$2, coins=$3
         WHERE id=$4
     `
-	res, err := r.db.Exec(query, user.Username, user.PasswordHash, user.Coins, user.ID)
+
+	var res sql.Result
+	var err error
+
+	if tx != nil {
+		res, err = tx.ExecContext(ctx, query, user.Coins, user.ID)
+	} else {
+		// если транзакцию не передали ?? мб стоит создавать
+		res, err = r.db.ExecContext(ctx, query, user.Coins, user.ID)
+	}
+
 	if err != nil {
-		return err
+		return fmt.Errorf("update user failed: %w", err)
 	}
-	affected, err := res.RowsAffected()
+
+	rowsAffected, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return fmt.Errorf("rows affected error: %w", err)
 	}
-	if affected == 0 {
-		return sql.ErrNoRows
+
+	if rowsAffected == 0 {
+		return storage.ErrUserNotFound
 	}
+
 	return nil
 }

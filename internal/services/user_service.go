@@ -1,10 +1,13 @@
 package services
 
 import (
-	"avito-backend-intern-winter25/internal/models"
+	"avito-backend-intern-winter25/internal/models/domain"
 	"avito-backend-intern-winter25/internal/storage"
+	"context"
+	"database/sql"
 	"errors"
 	"golang.org/x/crypto/bcrypt"
+	"log"
 )
 
 var (
@@ -19,16 +22,26 @@ func NewUserService(userRepo storage.UserRepository) *UserService {
 	return &UserService{userRepo}
 }
 
-func (s *UserService) Login(username, password string) (*models.User, error) {
-	user, err := s.userRepo.FindByUsername(username)
+func (s *UserService) Login(ctx context.Context, username, password string) (*domain.User, error) {
+	tx, err := s.userRepo.BeginTx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			log.Printf("rollback error: %v", err)
+		}
+	}()
+
+	user, err := s.userRepo.FindByUsername(ctx, username)
 	if errors.Is(err, storage.ErrUserNotFound) {
 		hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-		user = &models.User{
+		user = &domain.User{
 			Username:     username,
 			PasswordHash: string(hashedPassword),
 			Coins:        1000,
 		}
-		if err := s.userRepo.Create(user); err != nil {
+		if err := s.userRepo.Create(ctx, tx, user); err != nil {
 			return nil, err
 		}
 		return user, nil

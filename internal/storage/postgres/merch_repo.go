@@ -1,9 +1,12 @@
 package postgres
 
 import (
-	"avito-backend-intern-winter25/internal/models"
+	"avito-backend-intern-winter25/internal/models/domain"
 	"avito-backend-intern-winter25/internal/storage"
+	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 )
 
 type MerchRepository struct {
@@ -16,21 +19,24 @@ func NewMerchRepository(db *sql.DB) *MerchRepository {
 	}
 }
 
-func (r *MerchRepository) FindByName(name string) (models.Merch, error) {
+func (r *MerchRepository) FindByName(ctx context.Context, name string) (*domain.Merch, error) {
 	if name == "" {
-		return models.Merch{}, storage.ErrMerchNameIsIncorrect
+		return &domain.Merch{}, storage.ErrMerchNameIsIncorrect
 	}
 	query := `
 	SELECT id, name, price FROM merch WHERE name = $1;
 	`
 
-	var result models.Merch
+	var result domain.Merch
 
-	row := r.db.QueryRow(query, name)
+	row := r.db.QueryRowContext(ctx, query, name)
 	err := row.Scan(&result.Id, &result.Name, &result.Price)
 	if err != nil {
-		return models.Merch{}, storage.ErrMerchNotFound
+		if errors.Is(err, sql.ErrNoRows) {
+			return &domain.Merch{}, storage.ErrMerchNotFound
+		}
+		return &domain.Merch{}, fmt.Errorf("failed to find merch: %w", err)
 	}
 
-	return result, nil
+	return &result, nil
 }

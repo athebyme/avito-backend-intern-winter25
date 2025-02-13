@@ -51,10 +51,35 @@ func main() {
 
 	userRepo := postgres.NewUserRepository(db)
 	userService := services.NewUserService(userRepo)
-	login, err := userService.Login("sigma", "hello world !")
+	login, err := userService.Login("rizz_god", "hello world !")
+	login2, err := userService.Login("sigma", "hello world !")
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	log.Printf("Hello, %s ! %d  %d %s", login.Username, login.ID, login.Coins, login.CreatedAt)
+
+	transactionRepo := postgres.NewTransactionRepository(db)
+	transactionService := services.NewTransactionService(
+		db,
+		userRepo,
+		transactionRepo,
+	)
+
+	err = transactionService.TransferCoins(login.ID, login2.ID, 1000)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("OK")
+
+	purchaseRepo := postgres.NewPurchaseRepository(db)
+	merchRepo := postgres.NewMerchRepository(db)
+	merchService := services.NewMerchService(
+		merchRepo,
+		purchaseRepo,
+		userRepo,
+		db,
+	)
+
+	merchService.PurchaseItem(login2.ID, "")
 }

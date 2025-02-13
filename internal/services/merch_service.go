@@ -19,6 +19,20 @@ type MerchService struct {
 	db           *sql.DB
 }
 
+func NewMerchService(
+	merchRepo storage.MerchRepository,
+	purchaseRepo storage.PurchaseRepository,
+	userRepo storage.UserRepository,
+	db *sql.DB,
+) *MerchService {
+	return &MerchService{
+		merchRepo:    merchRepo,
+		purchaseRepo: purchaseRepo,
+		userRepo:     userRepo,
+		db:           db,
+	}
+}
+
 func (s *MerchService) PurchaseItem(userID int64, itemName string) error {
 	item, err := s.merchRepo.FindByName(itemName)
 	if err != nil {

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"avito-backend-intern-winter25/internal/models"
+	"avito-backend-intern-winter25/internal/storage"
 	"database/sql"
 	"time"
 )
@@ -26,6 +27,10 @@ func (r *TransactionRepository) Create(transaction *models.CoinTransaction) erro
 }
 
 func (r *TransactionRepository) GetSentTransactions(userID int64) ([]*models.CoinTransaction, error) {
+	if userID < 0 {
+		return nil, storage.ErrInvalidUserId
+	}
+
 	query := `
         SELECT id, from_user_id, to_user_id, amount, created_at
         FROM coin_transactions

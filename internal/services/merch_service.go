@@ -81,3 +81,15 @@ func (s *MerchService) PurchaseItem(ctx context.Context, userID int64, itemName 
 
 	return nil
 }
+
+func (s *MerchService) GetPurchasesByUser(ctx context.Context, userID int64) ([]*domain.Purchase, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	return s.purchaseRepo.GetByUser(ctx, tx, userID)
+}
+
+func (s *MerchService) GetAllAvailableMerch(ctx context.Context) ([]*domain.Merch, error) {
+	return s.merchRepo.GetAllAvailableMerch(ctx)
+}

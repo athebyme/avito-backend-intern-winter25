@@ -1,27 +1,42 @@
 package middleware
 
 import (
-	"avito-backend-intern-winter25/config"
-	"avito-backend-intern-winter25/pkg/jwt"
+	jwtservice "avito-backend-intern-winter25/internal/services/jwt"
 	"github.com/gin-gonic/gin"
+	"strings"
 )
 
-func Auth(cfg config.JWTConfig) gin.HandlerFunc {
+const (
+	userIDKey    = "userID"
+	bearerSchema = "Bearer "
+)
+
+func AuthMiddleware(jwtService *jwtservice.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		tokenString := c.GetHeader("Authorization")
-		if tokenString == "" {
-			c.AbortWithStatusJSON(401, gin.H{"error": "Authorization header is required"})
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.AbortWithStatusJSON(401, gin.H{"errors": "authorization header is required"})
 			return
 		}
 
-		claims, err := jwt.ParseToken(tokenString, cfg.SecretKey)
+		if !strings.HasPrefix(authHeader, bearerSchema) {
+			c.AbortWithStatusJSON(401, gin.H{"errors": "invalid authorization header format"})
+			return
+		}
+
+		token := strings.TrimPrefix(authHeader, bearerSchema)
+		claims, err := jwtService.ValidateToken(token)
 		if err != nil {
-			c.AbortWithStatusJSON(401, gin.H{"error": "Invalid token"})
+			c.AbortWithStatusJSON(401, gin.H{"errors": "invalid token"})
 			return
 		}
 
-		c.Set("user_id", claims.UserID)
-		c.Set("username", claims.Username)
+		c.Set(userIDKey, claims.UserID)
 		c.Next()
 	}
+}
+
+func GetUserID(c *gin.Context) int64 {
+	userID, _ := c.Get(userIDKey)
+	return userID.(int64)
 }

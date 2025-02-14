@@ -6,7 +6,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"log"
 	"time"
 )
 
@@ -33,32 +32,29 @@ func NewTransactionService(
 }
 
 func (s *TransactionService) TransferCoins(ctx context.Context, fromUserID, toUserID int64, amount int) error {
-	if amount < 0 {
-		return ErrInvalidAmount
-	}
-
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
-			log.Printf("rollback error: %v", err)
+		if err != nil {
+			tx.Rollback()
+		} else {
+			tx.Commit()
 		}
 	}()
 
-	fromUser, err := s.userRepo.FindByID(ctx, fromUserID)
+	fromUser, err := s.userRepo.FindByIDForUpdate(ctx, tx, fromUserID)
+	if err != nil {
+		return err
+	}
+	toUser, err := s.userRepo.FindByIDForUpdate(ctx, tx, toUserID)
 	if err != nil {
 		return err
 	}
 
 	if fromUser.Coins < amount {
 		return ErrLackOfFundsOnAccount
-	}
-
-	toUser, err := s.userRepo.FindByID(ctx, toUserID)
-	if err != nil {
-		return storage.ErrUserNotFound
 	}
 
 	fromUser.Coins -= amount
@@ -83,4 +79,12 @@ func (s *TransactionService) TransferCoins(ctx context.Context, fromUserID, toUs
 	}
 
 	return tx.Commit()
+}
+
+func (s *TransactionService) GetSentTransactions(ctx context.Context, userID int64) ([]*domain.CoinTransaction, error) {
+	return s.transactionRepo.GetSentTransactions(ctx, userID)
+}
+
+func (s *TransactionService) GetReceivedTransactions(ctx context.Context, userID int64) ([]*domain.CoinTransaction, error) {
+	return s.transactionRepo.GetReceivedTransactions(ctx, userID)
 }

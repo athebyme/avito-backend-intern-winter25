@@ -40,3 +40,25 @@ func (r *MerchRepository) FindByName(ctx context.Context, name string) (*domain.
 
 	return &result, nil
 }
+
+func (r *MerchRepository) GetAllAvailableMerch(ctx context.Context) ([]*domain.Merch, error) {
+	query := `
+        SELECT name, price
+        FROM merch
+    `
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var merch []*domain.Merch
+	for rows.Next() {
+		var t domain.Merch
+		if err := rows.Scan(&t.Name, &t.Price); err != nil {
+			return nil, err
+		}
+		merch = append(merch, &t)
+	}
+	return merch, nil
+}

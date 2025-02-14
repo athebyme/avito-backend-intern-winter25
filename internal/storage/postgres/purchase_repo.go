@@ -2,9 +2,9 @@ package postgres
 
 import (
 	"avito-backend-intern-winter25/internal/models/domain"
+	"avito-backend-intern-winter25/pkg/errs"
 	"context"
 	"database/sql"
-	"errors"
 	"time"
 )
 
@@ -18,7 +18,7 @@ func NewPurchaseRepository(db *sql.DB) *PurchaseRepository {
 
 func (r *PurchaseRepository) Create(ctx context.Context, tx *sql.Tx, purchase *domain.Purchase) error {
 	if tx == nil {
-		return errors.New("tx is nil")
+		return errs.ErrTransactionNotFound
 	}
 
 	query := `
@@ -31,14 +31,17 @@ func (r *PurchaseRepository) Create(ctx context.Context, tx *sql.Tx, purchase *d
 	return tx.QueryRowContext(ctx, query, purchase.UserID, purchase.Item, purchase.Price, purchase.PurchaseDate).Scan(&purchase.ID)
 }
 
-func (r *PurchaseRepository) GetByUser(ctx context.Context, userID int64) ([]*domain.Purchase, error) {
+func (r *PurchaseRepository) GetByUser(ctx context.Context, tx *sql.Tx, userID int64) ([]*domain.Purchase, error) {
+	if tx == nil {
+		return nil, errs.ErrTransactionNotFound
+	}
 	query := `
         SELECT id, user_id, item, price, purchase_date
         FROM purchases
         WHERE user_id = $1
         ORDER BY purchase_date DESC
     `
-	rows, err := r.db.QueryContext(ctx, query, userID)
+	rows, err := tx.QueryContext(ctx, query, userID)
 	if err != nil {
 		return nil, err
 	}

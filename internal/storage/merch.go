@@ -12,5 +12,6 @@ var (
 )
 
 type MerchRepository interface {
+	GetAllAvailableMerch(ctx context.Context) ([]*domain.Merch, error)
 	FindByName(ctx context.Context, name string) (*domain.Merch, error)
 }

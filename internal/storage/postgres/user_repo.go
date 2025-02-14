@@ -3,6 +3,7 @@ package postgres
 import (
 	"avito-backend-intern-winter25/internal/models/domain"
 	"avito-backend-intern-winter25/internal/storage"
+	"avito-backend-intern-winter25/pkg/errs"
 	"context"
 	"database/sql"
 	"errors"
@@ -30,7 +31,7 @@ func (r *UserRepository) BeginTx(ctx context.Context) (*sql.Tx, error) {
 
 func (r *UserRepository) Create(ctx context.Context, tx *sql.Tx, user *domain.User) error {
 	if tx == nil {
-		return errors.New("tx is nil")
+		return errs.ErrTransactionNotFound
 	}
 
 	query := `
@@ -43,18 +44,13 @@ func (r *UserRepository) Create(ctx context.Context, tx *sql.Tx, user *domain.Us
 	return tx.QueryRowContext(ctx, query, user.Username, user.PasswordHash, user.Coins, user.CreatedAt).Scan(&user.ID)
 }
 
-func (r *UserRepository) FindByID(ctx context.Context, tx *sql.Tx, id int64) (*domain.User, error) {
+func (r *UserRepository) FindByID(ctx context.Context, id int64) (*domain.User, error) {
 	query := `
         SELECT id, username, password_hash, coins, created_at
         FROM users WHERE id = $1
     `
 	var row *sql.Row
-
-	if tx != nil {
-		row = tx.QueryRowContext(ctx, query, id)
-	} else {
-		row = r.db.QueryRowContext(ctx, query, id)
-	}
+	row = r.db.QueryRowContext(ctx, query, id)
 
 	var user domain.User
 	err := row.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Coins, &user.CreatedAt)
@@ -85,6 +81,7 @@ func (r *UserRepository) FindByUsername(ctx context.Context, username string) (*
 }
 
 func (r *UserRepository) Update(ctx context.Context, tx *sql.Tx, user *domain.User) error {
+
 	query := `
         UPDATE users SET username=$1, password_hash=$2, coins=$3
         WHERE id=$4
@@ -94,7 +91,7 @@ func (r *UserRepository) Update(ctx context.Context, tx *sql.Tx, user *domain.Us
 	var err error
 
 	if tx != nil {
-		res, err = tx.ExecContext(ctx, query, user.Coins, user.ID)
+		res, err = tx.ExecContext(ctx, query, user.Username, user.PasswordHash, user.Coins, user.ID)
 	} else {
 		// если транзакцию не передали ?? мб стоит создавать
 		res, err = r.db.ExecContext(ctx, query, user.Coins, user.ID)
@@ -114,4 +111,27 @@ func (r *UserRepository) Update(ctx context.Context, tx *sql.Tx, user *domain.Us
 	}
 
 	return nil
+}
+
+func (r *UserRepository) FindByIDForUpdate(ctx context.Context, tx *sql.Tx, id int64) (*domain.User, error) {
+	if tx == nil {
+		return nil, errs.ErrTransactionNotFound
+	}
+	query := `
+        SELECT id, username, password_hash, coins, created_at
+        FROM users
+        WHERE id = $1
+        FOR UPDATE
+    `
+	row := tx.QueryRowContext(ctx, query, id)
+
+	var user domain.User
+	err := row.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Coins, &user.CreatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, storage.ErrUserNotFound
+		}
+		return nil, err
+	}
+	return &user, nil
 }

@@ -4,75 +4,76 @@ import (
 	"avito-backend-intern-winter25/config"
 	"avito-backend-intern-winter25/internal/handlers"
 	"avito-backend-intern-winter25/internal/middleware"
+	"avito-backend-intern-winter25/internal/services"
+	"avito-backend-intern-winter25/internal/services/jwt"
+	"avito-backend-intern-winter25/internal/storage/postgres"
+	"database/sql"
 	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
-	"log"
+	"os"
 )
 
 const (
 	configLocation = "config/config.yaml"
-	migrationDir   = "file:./migrations"
+	migrationDir   = "file://migrations"
 )
 
 func main() {
-	cfg := &config.PostgresConfig{}
+	logger, _ := zap.NewProduction()
+	defer func() {
+		_ = logger.Sync()
+	}()
 
-	rawCfg, err := cfg.Init(configLocation)
+	cfg, err := config.LoadConfig(configLocation)
 	if err != nil {
-		log.Fatalf("error initilizating config : %v", err)
+		logger.Error("Error loading config", zap.Error(err))
 	}
 
-	cfg, ok := rawCfg.(*config.PostgresConfig)
-	if !ok {
-		log.Fatalf("unexpected configuration file.")
-	}
-
-	connectionString := cfg.GetConnectionString()
-	fmt.Println("Connection String:", connectionString)
+	jwtService := jwt.NewService(cfg.JWT.SecretKey, cfg.JWT.TokenLifetime)
+	connectionString := cfg.Postgres.GetConnectionString()
 
 	m, err := migrate.New(migrationDir, connectionString)
 	if err != nil {
-		log.Fatalf("Ошибка инициализации миграций: %v", err)
+		logger.Error("Error creating migration", zap.Error(err))
+		os.Exit(1)
 	}
-
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		log.Fatalf("Ошибка применения миграций: %v", err)
+		logger.Error("Error running migration", zap.Error(err))
+		os.Exit(1)
 	}
-	log.Println("Миграции успешно применены!")
 
-	// Инициализация логгера
-	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	db, err := sql.Open("postgres", connectionString)
+	if err != nil {
+		logger.DPanic("Error connecting to database", zap.Error(err))
+		os.Exit(1)
+	}
+
+	usrRepo := postgres.NewUserRepository(db)
+	purchaseRepo := postgres.NewPurchaseRepository(db)
+	merchRepo := postgres.NewMerchRepository(db)
+	transactionRepo := postgres.NewTransactionRepository(db)
+
+	usrService := services.NewUserService(usrRepo, jwtService)
+	merchService := services.NewMerchService(merchRepo, purchaseRepo, usrRepo, db)
+	transactionService := services.NewTransactionService(db, usrRepo, transactionRepo)
+
+	handler := handlers.NewHandler(usrService, merchService, transactionService)
 
 	r := gin.New()
-
-	// Мидлвари
 	r.Use(
 		middleware.Logging(logger),
 		middleware.Prometheus(),
 		gin.Recovery(),
 	)
 
-	// Эндпоинт для метрик Prometheus
+	handler.SetupRoutes(r, jwtService)
 
-	r := gin.Default()
-
-	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
-	authGroup := r.Group("/api")
-	authGroup.Use(middleware.Auth())
-	{
-		authGroup.GET("/info", handlers.UserHandler)
-		authGroup.POST("/sendCoin", handlers.SendCoins)
-		authGroup.GET("/buy/:item", handlers.BuyItem)
+	if err := r.Run(fmt.Sprintf(":%d", cfg.Server.Port)); err != nil {
+		logger.Fatal("Failed to run server", zap.Error(err))
 	}
-
-	r.POST("/api/auth", handlers.Auth)
-
-	r.Run(":8080")
 }

@@ -1,6 +1,16 @@
+server:
+  port: 8080
+  read_timeout: 5s
+  write_timeout: 10s
+
 postgres:
   host: "localhost"
   port: 5432
   username: "postgres"
   password: "password"
   db_name: "shop"
+  ssl_mode: "disable"
+
+jwt:
+  secret_key: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  token_lifetime: 24h

@@ -1,33 +1,76 @@
 package config
 
 import (
+	"fmt"
 	"gopkg.in/yaml.v2"
 	"os"
+	"time"
 )
 
-type Config interface{}
-
-type Initialize interface {
-	// Init TODO : не самый лучший вариант класть filename в init бд. получается мы зависим от filename string
-	// Init TODO : а если придется подключаться не из filename, например.
-	Init(filename string) (Config, error)
+type Config struct {
+	Server   ServerConfig   `yaml:"server"`
+	Postgres PostgresConfig `yaml:"postgres"`
+	JWT      JWTConfig      `yaml:"jwt"`
 }
 
-type AppConfig struct {
-	DatabaseConfig DatabaseConfig `yaml:"database"`
-	// AuthConfig     AuthConfig     `yaml:"auth_config"`
+type ServerConfig struct {
+	Port         int           `yaml:"port"`
+	ReadTimeout  time.Duration `yaml:"read_timeout"`
+	WriteTimeout time.Duration `yaml:"write_timeout"`
 }
 
-func (pc *AppConfig) Init(filename string) (Config, error) {
+type PostgresConfig struct {
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port"`
+	User     string `yaml:"username"`
+	Password string `yaml:"password"`
+	DBName   string `yaml:"db_name"`
+	SSLMode  string `yaml:"ssl_mode"`
+}
+
+type JWTConfig struct {
+	SecretKey     string        `yaml:"secret_key"`
+	TokenLifetime time.Duration `yaml:"token_lifetime"`
+}
+
+func (pc *PostgresConfig) GetConnectionString() string {
+	sslMode := pc.SSLMode
+	if sslMode == "" {
+		sslMode = "disable"
+	}
+	return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+		pc.User, pc.Password, pc.Host, pc.Port, pc.DBName, sslMode)
+}
+
+func LoadConfig(filename string) (*Config, error) {
 	file, err := os.Open(filename)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error opening config file: %w", err)
 	}
 	defer file.Close()
 
+	cfg := &Config{}
 	decoder := yaml.NewDecoder(file)
-	if err := decoder.Decode(pc); err != nil {
-		return nil, err
+	if err := decoder.Decode(cfg); err != nil {
+		return nil, fmt.Errorf("error decoding config file: %w", err)
 	}
-	return pc, nil
+
+	if err := validateConfig(cfg); err != nil {
+		return nil, fmt.Errorf("config validation error: %w", err)
+	}
+
+	return cfg, nil
+}
+
+func validateConfig(cfg *Config) error {
+	if cfg.JWT.SecretKey == "" {
+		return fmt.Errorf("JWT secret key is required")
+	}
+	if cfg.JWT.TokenLifetime <= 0 {
+		return fmt.Errorf("JWT token lifetime must be positive")
+	}
+	if cfg.Server.Port <= 0 {
+		return fmt.Errorf("server port must be positive")
+	}
+	return nil
 }

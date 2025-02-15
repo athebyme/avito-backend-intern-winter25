@@ -21,7 +21,7 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 	}
 }
 
-func (r *UserRepository) BeginTx(ctx context.Context) (*sql.Tx, error) {
+func (r *UserRepository) BeginTx(ctx context.Context) (storage.Tx, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -29,7 +29,7 @@ func (r *UserRepository) BeginTx(ctx context.Context) (*sql.Tx, error) {
 	return tx, nil
 }
 
-func (r *UserRepository) Create(ctx context.Context, tx *sql.Tx, user *domain.User) error {
+func (r *UserRepository) Create(ctx context.Context, tx storage.Tx, user *domain.User) error {
 	if tx == nil {
 		return errs.ErrTransactionNotFound
 	}
@@ -80,7 +80,7 @@ func (r *UserRepository) FindByUsername(ctx context.Context, username string) (*
 	return &user, nil
 }
 
-func (r *UserRepository) Update(ctx context.Context, tx *sql.Tx, user *domain.User) error {
+func (r *UserRepository) Update(ctx context.Context, tx storage.Tx, user *domain.User) error {
 
 	query := `
         UPDATE users SET username=$1, password_hash=$2, coins=$3
@@ -113,7 +113,7 @@ func (r *UserRepository) Update(ctx context.Context, tx *sql.Tx, user *domain.Us
 	return nil
 }
 
-func (r *UserRepository) FindByIDForUpdate(ctx context.Context, tx *sql.Tx, id int64) (*domain.User, error) {
+func (r *UserRepository) FindByIDForUpdate(ctx context.Context, tx storage.Tx, id int64) (*domain.User, error) {
 	if tx == nil {
 		return nil, errs.ErrTransactionNotFound
 	}

@@ -17,7 +17,7 @@ func NewTransactionRepository(db *sql.DB) *TransactionRepository {
 	return &TransactionRepository{db: db}
 }
 
-func (r *TransactionRepository) Create(ctx context.Context, tx *sql.Tx, transaction *domain.CoinTransaction) error {
+func (r *TransactionRepository) Create(ctx context.Context, tx storage.Tx, transaction *domain.CoinTransaction) error {
 	if tx == nil {
 		return errors.New("tx is nil")
 	}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log"
 	"time"
 )
 
@@ -31,16 +32,23 @@ func NewTransactionService(
 	}
 }
 
-func (s *TransactionService) TransferCoins(ctx context.Context, fromUserID, toUserID int64, amount int) error {
+func (s *TransactionService) TransferCoins(ctx context.Context, fromUserID, toUserID int64, amount int) (err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		if err != nil {
-			tx.Rollback()
+			if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+				log.Printf("rollback error: %v", rbErr)
+			}
 		} else {
-			tx.Commit()
+			if cmErr := tx.Commit(); cmErr != nil {
+				if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+					log.Printf("rollback error: %v", rbErr)
+				}
+				err = cmErr
+			}
 		}
 	}()
 
@@ -60,10 +68,10 @@ func (s *TransactionService) TransferCoins(ctx context.Context, fromUserID, toUs
 	fromUser.Coins -= amount
 	toUser.Coins += amount
 
-	if err := s.userRepo.Update(ctx, tx, fromUser); err != nil {
+	if err = s.userRepo.Update(ctx, tx, fromUser); err != nil {
 		return err
 	}
-	if err := s.userRepo.Update(ctx, tx, toUser); err != nil {
+	if err = s.userRepo.Update(ctx, tx, toUser); err != nil {
 		return err
 	}
 
@@ -74,11 +82,11 @@ func (s *TransactionService) TransferCoins(ctx context.Context, fromUserID, toUs
 		CreatedAt:  time.Now(),
 	}
 
-	if err := s.transactionRepo.Create(ctx, tx, transaction); err != nil {
+	if err = s.transactionRepo.Create(ctx, tx, transaction); err != nil {
 		return err
 	}
 
-	return tx.Commit()
+	return nil
 }
 
 func (s *TransactionService) GetSentTransactions(ctx context.Context, userID int64) ([]*domain.CoinTransaction, error) {

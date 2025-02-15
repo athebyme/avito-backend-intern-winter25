@@ -28,7 +28,7 @@ func NewUserService(userRepo storage.UserRepository, jwtService jwt.JWT) *UserSe
 	}
 }
 
-func (s *UserService) Login(ctx context.Context, username, password string) (*domain.User, error) {
+func (s *UserService) Login(ctx context.Context, username, password string) (user *domain.User, err error) {
 	tx, err := s.userRepo.BeginTx(ctx)
 	if err != nil {
 		return nil, err
@@ -36,26 +36,27 @@ func (s *UserService) Login(ctx context.Context, username, password string) (*do
 
 	defer func() {
 		if p := recover(); p != nil {
-			if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
-				log.Printf("rollback error: %v", err)
+			if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+				log.Printf("rollback error: %v", rbErr)
 			}
 			panic(p)
 		} else if err != nil {
-			if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
-				log.Printf("rollback error: %v", err)
+			if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+				log.Printf("rollback error: %v", rbErr)
 			}
 		} else {
-			if err := tx.Commit(); err != nil {
-				log.Printf("commit tx error: %v", err)
-				return
+			if cmErr := tx.Commit(); cmErr != nil {
+				log.Printf("commit tx error: %v", cmErr)
+				user = nil
+				err = cmErr
 			}
 		}
 	}()
 
-	user, err := s.userRepo.FindByUsername(ctx, username)
+	user, err = s.userRepo.FindByUsername(ctx, username)
 	if errors.Is(err, storage.ErrUserNotFound) {
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-		if err != nil {
+		var hashedPassword []byte
+		if hashedPassword, err = bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost); err != nil {
 			return nil, err
 		}
 		user = &domain.User{
@@ -63,10 +64,7 @@ func (s *UserService) Login(ctx context.Context, username, password string) (*do
 			PasswordHash: string(hashedPassword),
 			Coins:        1000,
 		}
-		if err := s.userRepo.Create(ctx, tx, user); err != nil {
-			return nil, err
-		}
-		if err := tx.Commit(); err != nil {
+		if err = s.userRepo.Create(ctx, tx, user); err != nil {
 			return nil, err
 		}
 		return user, nil
@@ -75,11 +73,8 @@ func (s *UserService) Login(ctx context.Context, username, password string) (*do
 		return nil, err
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		return nil, ErrInvalidPassword
-	}
-
-	if err := tx.Commit(); err != nil {
+	if err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		err = ErrInvalidPassword
 		return nil, err
 	}
 

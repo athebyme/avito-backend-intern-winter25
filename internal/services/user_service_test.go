@@ -1,151 +1,690 @@
 package services
 
 import (
-	mocks_tx "avito-backend-intern-winter25/internal/mocks/mock_tx"
-	mocks_repo "avito-backend-intern-winter25/internal/mocks/repo"
-	mocks_services "avito-backend-intern-winter25/internal/mocks/services"
 	"avito-backend-intern-winter25/internal/models/domain"
+	"avito-backend-intern-winter25/internal/services/jwt"
+	"avito-backend-intern-winter25/internal/services/mocks"
 	"avito-backend-intern-winter25/internal/storage"
 	"context"
+	"database/sql"
+	"errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 	"testing"
+	"time"
 )
 
-func TestUserService_Login_InvalidPassword(t *testing.T) {
+func TestNewUserService(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+
+	service := NewUserService(mockUserRepo, mockJWT)
+	assert.NotNil(t, service)
+}
+
+func TestLogin_NewUser(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+	mockTx := new(mocks.MockTx)
+
+	ctx := context.Background()
+	username := "newuser"
+	password := "password123"
+
+	mockUserRepo.On("BeginTx", ctx).Return(mockTx, nil)
+	mockUserRepo.On("FindByUsername", ctx, username).Return(nil, storage.ErrUserNotFound)
+	mockUserRepo.On("Create", ctx, mockTx, mock.AnythingOfType("*domain.User")).Return(nil)
+	mockTx.On("Commit").Return(nil)
+
+	service := NewUserService(mockUserRepo, mockJWT)
+	user, err := service.Login(ctx, username, password)
+
+	require.NoError(t, err)
+	assert.NotNil(t, user)
+	assert.Equal(t, username, user.Username)
+	assert.Equal(t, 1000, user.Coins)
+
+	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
+	assert.NoError(t, err)
+
+	mockUserRepo.AssertExpectations(t)
+	mockTx.AssertExpectations(t)
+}
+
+func TestLogin_ExistingUser_ValidPassword(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+	mockTx := new(mocks.MockTx)
+
 	ctx := context.Background()
 	username := "existinguser"
-	password := "wrongpassword"
-	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte("correctpassword"), bcrypt.DefaultCost)
+	password := "password123"
+	passwordHash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 
 	existingUser := &domain.User{
+		ID:           1,
 		Username:     username,
-		PasswordHash: string(hashedPassword),
-		Coins:        1500,
+		PasswordHash: string(passwordHash),
+		Coins:        500,
+		CreatedAt:    time.Now(),
 	}
 
-	mockUserRepo := new(mocks_repo.MockUserRepository)
-	mockJWTService := new(mocks_services.MockJWTService)
-	mockTx := new(mocks_tx.MockTx)
+	mockUserRepo.On("BeginTx", ctx).Return(mockTx, nil)
+	mockUserRepo.On("FindByUsername", ctx, username).Return(existingUser, nil)
+	mockTx.On("Commit").Return(nil)
 
-	service := NewUserService(mockUserRepo, mockJWTService)
+	service := NewUserService(mockUserRepo, mockJWT)
+	user, err := service.Login(ctx, username, password)
+
+	require.NoError(t, err)
+	assert.Equal(t, existingUser.ID, user.ID)
+	assert.Equal(t, username, user.Username)
+	assert.Equal(t, 500, user.Coins)
+
+	mockUserRepo.AssertExpectations(t)
+	mockTx.AssertExpectations(t)
+}
+
+func TestLogin_ExistingUser_InvalidPassword(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+	mockTx := new(mocks.MockTx)
+
+	ctx := context.Background()
+	username := "existinguser"
+	correctPassword := "password123"
+	wrongPassword := "wrongpassword"
+	passwordHash, _ := bcrypt.GenerateFromPassword([]byte(correctPassword), bcrypt.DefaultCost)
+
+	existingUser := &domain.User{
+		ID:           1,
+		Username:     username,
+		PasswordHash: string(passwordHash),
+		Coins:        500,
+		CreatedAt:    time.Now(),
+	}
 
 	mockUserRepo.On("BeginTx", ctx).Return(mockTx, nil)
 	mockUserRepo.On("FindByUsername", ctx, username).Return(existingUser, nil)
 	mockTx.On("Rollback").Return(nil)
 
-	_, err := service.Login(ctx, username, password)
+	service := NewUserService(mockUserRepo, mockJWT)
+	user, err := service.Login(ctx, username, wrongPassword)
 
+	assert.Nil(t, user)
 	assert.ErrorIs(t, err, ErrInvalidPassword)
+
+	mockUserRepo.AssertExpectations(t)
 	mockTx.AssertExpectations(t)
 }
 
-func TestUserService_GenerateToken(t *testing.T) {
+func TestLogin_BeginTxError(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+
+	ctx := context.Background()
+	expectedErr := errors.New("db connection error")
+
+	mockUserRepo.On("BeginTx", ctx).Return(nil, expectedErr)
+
+	service := NewUserService(mockUserRepo, mockJWT)
+	user, err := service.Login(ctx, "username", "password")
+
+	assert.Nil(t, user)
+	assert.ErrorIs(t, err, expectedErr)
+
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestLogin_FindByUsernameError(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+	mockTx := new(mocks.MockTx)
+
+	ctx := context.Background()
+	username := "username"
+	expectedErr := errors.New("db query error")
+
+	mockUserRepo.On("BeginTx", ctx).Return(mockTx, nil)
+	mockUserRepo.On("FindByUsername", ctx, username).Return(nil, expectedErr)
+	mockTx.On("Rollback").Return(nil)
+
+	service := NewUserService(mockUserRepo, mockJWT)
+	user, err := service.Login(ctx, username, "password")
+
+	assert.Nil(t, user)
+	assert.ErrorIs(t, err, expectedErr)
+
+	mockUserRepo.AssertExpectations(t)
+	mockTx.AssertExpectations(t)
+}
+
+func TestLogin_CreateError(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+	mockTx := new(mocks.MockTx)
+
+	ctx := context.Background()
+	username := "newuser"
+	expectedErr := errors.New("create user error")
+
+	mockUserRepo.On("BeginTx", ctx).Return(mockTx, nil)
+	mockUserRepo.On("FindByUsername", ctx, username).Return(nil, storage.ErrUserNotFound)
+	mockUserRepo.On("Create", ctx, mockTx, mock.AnythingOfType("*domain.User")).Return(expectedErr)
+	mockTx.On("Rollback").Return(nil)
+
+	service := NewUserService(mockUserRepo, mockJWT)
+	user, err := service.Login(ctx, username, "password")
+
+	assert.Nil(t, user)
+	assert.ErrorIs(t, err, expectedErr)
+
+	mockUserRepo.AssertExpectations(t)
+	mockTx.AssertExpectations(t)
+}
+
+func TestLogin_CommitError(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+	mockTx := new(mocks.MockTx)
+
+	ctx := context.Background()
+	username := "newuser"
+	expectedErr := errors.New("commit error")
+
+	mockUserRepo.On("BeginTx", ctx).Return(mockTx, nil)
+	mockUserRepo.On("FindByUsername", ctx, username).Return(nil, storage.ErrUserNotFound)
+	mockUserRepo.On("Create", ctx, mockTx, mock.AnythingOfType("*domain.User")).Return(nil)
+	mockTx.On("Commit").Return(expectedErr)
+
+	service := NewUserService(mockUserRepo, mockJWT)
+	user, err := service.Login(ctx, username, "password")
+
+	assert.Nil(t, user)
+	assert.ErrorIs(t, err, expectedErr)
+
+	mockUserRepo.AssertExpectations(t)
+	mockTx.AssertExpectations(t)
+}
+
+func TestGenerateToken(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+
 	user := &domain.User{
-		ID:       1,
+		ID:       123,
 		Username: "testuser",
 	}
+	expectedToken := "test.jwt.token"
 
-	mockUserRepo := new(mocks_repo.MockUserRepository)
-	mockJWTService := new(mocks_services.MockJWTService)
+	mockJWT.On("GenerateToken", int64(123), "testuser").Return(expectedToken, nil)
 
-	service := NewUserService(mockUserRepo, mockJWTService)
-
-	expectedToken := "test.token"
-	mockJWTService.On("GenerateToken", user.ID, user.Username).Return(expectedToken, nil)
-
+	service := NewUserService(mockUserRepo, mockJWT)
 	token, err := service.GenerateToken(user)
 
 	assert.NoError(t, err)
 	assert.Equal(t, expectedToken, token)
-	mockJWTService.AssertExpectations(t)
+
+	mockJWT.AssertExpectations(t)
 }
 
-func TestUserService_GetUserByID_Success(t *testing.T) {
+func TestGenerateToken_Error(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+
+	user := &domain.User{
+		ID:       123,
+		Username: "testuser",
+	}
+	expectedErr := errors.New("token generation error")
+
+	mockJWT.On("GenerateToken", int64(123), "testuser").Return("", expectedErr)
+
+	service := NewUserService(mockUserRepo, mockJWT)
+	token, err := service.GenerateToken(user)
+
+	assert.Equal(t, "", token)
+	assert.ErrorIs(t, err, expectedErr)
+
+	mockJWT.AssertExpectations(t)
+}
+
+func TestGetUserByID(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+
 	ctx := context.Background()
-	userID := int64(1)
-	expectedUser := &domain.User{ID: userID}
+	userId := int64(123)
+	expectedUser := &domain.User{
+		ID:       userId,
+		Username: "testuser",
+		Coins:    500,
+	}
 
-	mockUserRepo := new(mocks_repo.MockUserRepository)
-	service := NewUserService(mockUserRepo, nil)
+	mockUserRepo.On("FindByID", ctx, userId).Return(expectedUser, nil)
 
-	mockUserRepo.On("FindByID", ctx, userID).Return(expectedUser, nil)
-
-	user, err := service.GetUserByID(ctx, userID)
+	service := NewUserService(mockUserRepo, mockJWT)
+	user, err := service.GetUserByID(ctx, userId)
 
 	assert.NoError(t, err)
 	assert.Equal(t, expectedUser, user)
+
 	mockUserRepo.AssertExpectations(t)
 }
 
-func TestUserService_GetUserByID_NotFound(t *testing.T) {
+func TestGetUserByID_NotFound(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+
 	ctx := context.Background()
-	userID := int64(1)
+	userId := int64(999)
 
-	mockUserRepo := new(mocks_repo.MockUserRepository)
-	service := NewUserService(mockUserRepo, nil)
+	mockUserRepo.On("FindByID", ctx, userId).Return(nil, storage.ErrUserNotFound)
 
-	mockUserRepo.On("FindByID", ctx, userID).Return(nil, storage.ErrUserNotFound)
+	service := NewUserService(mockUserRepo, mockJWT)
+	user, err := service.GetUserByID(ctx, userId)
 
-	_, err := service.GetUserByID(ctx, userID)
-
+	assert.Nil(t, user)
 	assert.ErrorIs(t, err, ErrUserNotFound)
+
 	mockUserRepo.AssertExpectations(t)
 }
 
-func TestUserService_UpdateUserCoins(t *testing.T) {
+func TestGetUserByID_OtherError(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+
 	ctx := context.Background()
-	userID := int64(1)
-	newCoins := 2000
+	userId := int64(123)
+	expectedErr := errors.New("database error")
 
-	mockUserRepo := new(mocks_repo.MockUserRepository)
-	mockTx := new(mocks_tx.MockTx)
-	service := NewUserService(mockUserRepo, nil)
+	mockUserRepo.On("FindByID", ctx, userId).Return(nil, expectedErr)
 
-	existingUser := &domain.User{ID: userID, Coins: 1000}
+	service := NewUserService(mockUserRepo, mockJWT)
+	user, err := service.GetUserByID(ctx, userId)
 
-	mockUserRepo.On("BeginTx", ctx).Return(mockTx, nil)
-	mockUserRepo.On("FindByID", ctx, userID).Return(existingUser, nil)
-	mockUserRepo.On("Update", ctx, mockTx, &domain.User{ID: userID, Coins: newCoins}).Return(nil)
-	mockTx.On("Commit").Return(nil)
+	assert.Nil(t, user)
+	assert.ErrorIs(t, err, expectedErr)
 
-	err := service.UpdateUserCoins(ctx, userID, newCoins)
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestGetUserByUsername(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+
+	ctx := context.Background()
+	username := "testuser"
+	expectedUser := &domain.User{
+		ID:       123,
+		Username: username,
+		Coins:    500,
+	}
+
+	mockUserRepo.On("FindByUsername", ctx, username).Return(expectedUser, nil)
+
+	service := NewUserService(mockUserRepo, mockJWT)
+	user, err := service.GetUserByUsername(ctx, username)
 
 	assert.NoError(t, err)
+	assert.Equal(t, expectedUser, user)
+
 	mockUserRepo.AssertExpectations(t)
+}
+
+func TestGetUserByUsername_NotFound(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+
+	ctx := context.Background()
+	username := "nonexistentuser"
+
+	mockUserRepo.On("FindByUsername", ctx, username).Return(nil, storage.ErrUserNotFound)
+
+	service := NewUserService(mockUserRepo, mockJWT)
+	user, err := service.GetUserByUsername(ctx, username)
+
+	assert.Nil(t, user)
+	assert.ErrorIs(t, err, ErrUserNotFound)
+
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestGetUserByUsername_OtherError(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+
+	ctx := context.Background()
+	username := "testuser"
+	expectedErr := errors.New("database error")
+
+	mockUserRepo.On("FindByUsername", ctx, username).Return(nil, expectedErr)
+
+	service := NewUserService(mockUserRepo, mockJWT)
+	user, err := service.GetUserByUsername(ctx, username)
+
+	assert.Nil(t, user)
+	assert.ErrorIs(t, err, expectedErr)
+
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestUpdateUserCoins(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+	mockTx := new(mocks.MockTx)
+
+	ctx := context.Background()
+	userId := int64(123)
+	newCoins := 750
+
+	existingUser := &domain.User{
+		ID:       userId,
+		Username: "testuser",
+		Coins:    500,
+	}
+
+	mockUserRepo.On("BeginTx", ctx).Return(mockTx, nil)
+	mockUserRepo.On("FindByID", ctx, userId).Return(existingUser, nil)
+	mockUserRepo.On("Update", ctx, mockTx, mock.MatchedBy(func(u *domain.User) bool {
+		return u.ID == userId && u.Coins == newCoins
+	})).Return(nil)
+
+	service := NewUserService(mockUserRepo, mockJWT)
+	err := service.UpdateUserCoins(ctx, userId, newCoins)
+
+	assert.NoError(t, err)
+
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestUpdateUserCoins_BeginTxError(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+
+	ctx := context.Background()
+	userId := int64(123)
+	newCoins := 750
+	expectedErr := errors.New("begin transaction error")
+
+	mockUserRepo.On("BeginTx", ctx).Return(nil, expectedErr)
+
+	service := NewUserService(mockUserRepo, mockJWT)
+	err := service.UpdateUserCoins(ctx, userId, newCoins)
+
+	assert.ErrorIs(t, err, expectedErr)
+
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestUpdateUserCoins_FindByIDError(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+	mockTx := new(mocks.MockTx)
+
+	ctx := context.Background()
+	userId := int64(123)
+	newCoins := 750
+	expectedErr := errors.New("find user error")
+
+	mockUserRepo.On("BeginTx", ctx).Return(mockTx, nil)
+	mockUserRepo.On("FindByID", ctx, userId).Return(nil, expectedErr)
+
+	service := NewUserService(mockUserRepo, mockJWT)
+	err := service.UpdateUserCoins(ctx, userId, newCoins)
+
+	assert.ErrorIs(t, err, expectedErr)
+
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestUpdateUserCoins_UpdateError(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+	mockTx := new(mocks.MockTx)
+
+	ctx := context.Background()
+	userId := int64(123)
+	newCoins := 750
+	expectedErr := errors.New("update user error")
+
+	existingUser := &domain.User{
+		ID:       userId,
+		Username: "testuser",
+		Coins:    500,
+	}
+
+	mockUserRepo.On("BeginTx", ctx).Return(mockTx, nil)
+	mockUserRepo.On("FindByID", ctx, userId).Return(existingUser, nil)
+	mockUserRepo.On("Update", ctx, mockTx, mock.MatchedBy(func(u *domain.User) bool {
+		return u.ID == userId && u.Coins == newCoins
+	})).Return(expectedErr)
+
+	service := NewUserService(mockUserRepo, mockJWT)
+	err := service.UpdateUserCoins(ctx, userId, newCoins)
+
+	assert.ErrorIs(t, err, expectedErr)
+
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestValidateUserBalance_Sufficient(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+
+	ctx := context.Background()
+	userId := int64(123)
+	amount := 300
+
+	user := &domain.User{
+		ID:       userId,
+		Username: "testuser",
+		Coins:    500,
+	}
+
+	mockUserRepo.On("FindByID", ctx, userId).Return(user, nil)
+
+	service := NewUserService(mockUserRepo, mockJWT)
+	sufficient, err := service.ValidateUserBalance(ctx, userId, amount)
+
+	assert.NoError(t, err)
+	assert.True(t, sufficient)
+
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestValidateUserBalance_Insufficient(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+
+	ctx := context.Background()
+	userId := int64(123)
+	amount := 600
+
+	user := &domain.User{
+		ID:       userId,
+		Username: "testuser",
+		Coins:    500,
+	}
+
+	mockUserRepo.On("FindByID", ctx, userId).Return(user, nil)
+
+	service := NewUserService(mockUserRepo, mockJWT)
+	sufficient, err := service.ValidateUserBalance(ctx, userId, amount)
+
+	assert.NoError(t, err)
+	assert.False(t, sufficient)
+
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestValidateUserBalance_Error(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+
+	ctx := context.Background()
+	userId := int64(123)
+	amount := 300
+	expectedErr := errors.New("user not found")
+
+	mockUserRepo.On("FindByID", ctx, userId).Return(nil, expectedErr)
+
+	service := NewUserService(mockUserRepo, mockJWT)
+	sufficient, err := service.ValidateUserBalance(ctx, userId, amount)
+
+	assert.ErrorIs(t, err, expectedErr)
+	assert.False(t, sufficient)
+
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestGetUserBalance(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+
+	ctx := context.Background()
+	userId := int64(123)
+	expectedCoins := 500
+
+	user := &domain.User{
+		ID:       userId,
+		Username: "testuser",
+		Coins:    expectedCoins,
+	}
+
+	mockUserRepo.On("FindByID", ctx, userId).Return(user, nil)
+
+	service := NewUserService(mockUserRepo, mockJWT)
+	coins, err := service.GetUserBalance(ctx, userId)
+
+	assert.NoError(t, err)
+	assert.Equal(t, expectedCoins, coins)
+
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestGetUserBalance_Error(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+
+	ctx := context.Background()
+	userId := int64(123)
+	expectedErr := errors.New("user not found")
+
+	mockUserRepo.On("FindByID", ctx, userId).Return(nil, expectedErr)
+
+	service := NewUserService(mockUserRepo, mockJWT)
+	coins, err := service.GetUserBalance(ctx, userId)
+
+	assert.Equal(t, 0, coins)
+	assert.ErrorIs(t, err, expectedErr)
+
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestLogin_PanicInTransaction(t *testing.T) {
+	mockUserRepo := new(mocks.MockUserRepository)
+	mockJWT := new(mocks.MockJWT)
+	mockTx := new(mocks.MockTx)
+
+	ctx := context.Background()
+	username := "username"
+
+	mockUserRepo.On("BeginTx", ctx).Return(mockTx, nil)
+	mockUserRepo.On("FindByUsername", ctx, username).Run(func(args mock.Arguments) {
+		panic("unexpected panic")
+	})
+	mockTx.On("Rollback").Return(nil)
+
+	service := NewUserService(mockUserRepo, mockJWT)
+
+	assert.Panics(t, func() {
+		_, _ = service.Login(ctx, username, "password")
+	})
+
 	mockTx.AssertExpectations(t)
 }
 
-func TestUserService_ValidateUserBalance_Sufficient(t *testing.T) {
-	ctx := context.Background()
-	userID := int64(1)
-	amount := 500
+type dummyTx struct{}
 
-	mockUserRepo := new(mocks_repo.MockUserRepository)
-	service := NewUserService(mockUserRepo, nil)
-
-	existingUser := &domain.User{ID: userID, Coins: 1000}
-	mockUserRepo.On("FindByID", ctx, userID).Return(existingUser, nil)
-
-	valid, err := service.ValidateUserBalance(ctx, userID, amount)
-
-	assert.NoError(t, err)
-	assert.True(t, valid)
+func (d dummyTx) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+	panic("implement me")
 }
 
-func TestUserService_ValidateUserBalance_Insufficient(t *testing.T) {
+func (d dummyTx) QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
+	panic("implement me")
+}
+
+func (d dummyTx) Commit() error   { return nil }
+func (d dummyTx) Rollback() error { return nil }
+
+type dummyUserRepository struct {
+	hashedPassword string
+}
+
+func (d *dummyUserRepository) BeginTx(ctx context.Context) (storage.Tx, error) {
+	return dummyTx{}, nil
+}
+
+func (d *dummyUserRepository) FindByUsername(ctx context.Context, username string) (*domain.User, error) {
+	return &domain.User{
+		ID:           1,
+		Username:     username,
+		PasswordHash: d.hashedPassword,
+		Coins:        1000,
+	}, nil
+}
+
+func (d *dummyUserRepository) Create(ctx context.Context, tx storage.Tx, user *domain.User) error {
+	return nil
+}
+func (d *dummyUserRepository) FindByID(ctx context.Context, id int64) (*domain.User, error) {
+	return nil, sql.ErrNoRows
+}
+func (d *dummyUserRepository) Update(ctx context.Context, tx storage.Tx, user *domain.User) error {
+	return nil
+}
+func (d *dummyUserRepository) FindByIDForUpdate(ctx context.Context, tx storage.Tx, id int64) (*domain.User, error) {
+	return nil, sql.ErrNoRows
+}
+
+type dummyJWT struct{}
+
+func (d dummyJWT) GenerateToken(userID int64, username string) (string, error) {
+	return "dummyToken", nil
+}
+func (d dummyJWT) ValidateToken(tokenString string) (*jwt.Claims, error) {
+	return &jwt.Claims{UserID: 0, Username: ""}, nil
+}
+
+func BenchmarkUserService_Login(b *testing.B) {
 	ctx := context.Background()
-	userID := int64(1)
-	amount := 1500
+	password := "password"
 
-	mockUserRepo := new(mocks_repo.MockUserRepository)
-	service := NewUserService(mockUserRepo, nil)
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		b.Fatal(err)
+	}
 
-	existingUser := &domain.User{ID: userID, Coins: 1000}
-	mockUserRepo.On("FindByID", ctx, userID).Return(existingUser, nil)
+	repo := &dummyUserRepository{hashedPassword: string(hashed)}
+	jwtSvc := dummyJWT{}
 
-	valid, err := service.ValidateUserBalance(ctx, userID, amount)
+	userSvc := NewUserService(repo, jwtSvc)
 
-	assert.NoError(t, err)
-	assert.False(t, valid)
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			user, err := userSvc.Login(ctx, "testuser", password)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if user == nil {
+				b.Fatal("expected user, got nil")
+			}
+		}
+	})
 }

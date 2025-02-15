@@ -4,7 +4,7 @@ server:
   write_timeout: 10s
 
 postgres:
-  host: "localhost"
+  host: "db"
   port: 5432
   username: "postgres"
   password: "password"

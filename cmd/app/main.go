@@ -15,6 +15,7 @@ import (
 	"go.uber.org/zap"
 	"os"
 	"runtime"
+	"time"
 )
 
 const (
@@ -52,6 +53,10 @@ func main() {
 		logger.DPanic("Error connecting to database", zap.Error(err))
 		os.Exit(1)
 	}
+
+	db.SetMaxOpenConns(50)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxLifetime(5 * time.Minute)
 
 	usrRepo := postgres.NewUserRepository(db)
 	purchaseRepo := postgres.NewPurchaseRepository(db)

@@ -40,7 +40,7 @@ func (pc *PostgresConfig) GetConnectionString() string {
 	}
 
 	return fmt.Sprintf(
-		"postgres://%s:%s@%s:%d/%s?sslmode=%s&pool_max_conns=50",
+		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
 		pc.User,
 		pc.Password,
 		pc.Host,

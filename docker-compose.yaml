@@ -28,7 +28,7 @@ services:
       POSTGRES_DB: shop
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./migrations:/docker-entrypoint-initdb.d
+      # - ./migrations:/docker-entrypoint-initdb.d
     ports:
       - "5432:5432"
     healthcheck:

@@ -16,6 +16,7 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"go.uber.org/zap"
 	"os"
+	"runtime"
 )
 
 const (
@@ -24,6 +25,7 @@ const (
 )
 
 func main() {
+	runtime.GOMAXPROCS(runtime.NumCPU())
 	logger, _ := zap.NewProduction()
 	defer func() {
 		_ = logger.Sync()

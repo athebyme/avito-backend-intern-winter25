@@ -38,7 +38,7 @@ func (pc *PostgresConfig) GetConnectionString() string {
 	if sslMode == "" {
 		sslMode = "disable"
 	}
-	return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+	return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s pool_max_conns=50",
 		pc.User, pc.Password, pc.Host, pc.Port, pc.DBName, sslMode)
 }
 

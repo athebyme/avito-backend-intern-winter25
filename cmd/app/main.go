@@ -8,10 +8,8 @@ import (
 	"avito-backend-intern-winter25/internal/services/jwt"
 	"avito-backend-intern-winter25/internal/storage/postgres"
 	"database/sql"
-	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
-	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"go.uber.org/zap"
@@ -39,15 +37,15 @@ func main() {
 	jwtService := jwt.NewService(cfg.JWT.SecretKey, cfg.JWT.TokenLifetime)
 	connectionString := cfg.Postgres.GetConnectionString()
 
-	m, err := migrate.New(migrationDir, connectionString)
-	if err != nil {
-		logger.Error("Error creating migration", zap.Error(err))
-		os.Exit(1)
-	}
-	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		logger.Error("Error running migration", zap.Error(err))
-		os.Exit(1)
-	}
+	//m, err := migrate.New(migrationDir, connectionString)
+	//if err != nil {
+	//	logger.Error("Error creating migration", zap.Error(err))
+	//	os.Exit(1)
+	//}
+	//if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+	//	logger.Error("Error running migration", zap.Error(err))
+	//	os.Exit(1)
+	//}
 
 	db, err := sql.Open("postgres", connectionString)
 	if err != nil {

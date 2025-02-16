@@ -13,8 +13,12 @@ services:
       - DATABASE_NAME=shop
       - DATABASE_HOST=db
       - SERVER_PORT=8080
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - internal
@@ -39,6 +43,19 @@ services:
       start_period: 10s
     networks:
       - internal
+
+  redis:
+    image: redis:7
+    container_name: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   prometheus:
     image: prom/prometheus

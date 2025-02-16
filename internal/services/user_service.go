@@ -19,60 +19,70 @@ var (
 type UserService struct {
 	userRepo   storage.UserRepository
 	jwtService jwt.JWT
+	bcryptCost int
 }
 
 func NewUserService(userRepo storage.UserRepository, jwtService jwt.JWT) *UserService {
 	return &UserService{
 		userRepo:   userRepo,
 		jwtService: jwtService,
+		bcryptCost: 6,
 	}
 }
 
 func (s *UserService) Login(ctx context.Context, username, password string) (user *domain.User, err error) {
-	tx, err := s.userRepo.BeginTx(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	defer func() {
-		if p := recover(); p != nil {
-			if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
-				log.Printf("rollback error: %v", rbErr)
-			}
-			panic(p)
-		} else if err != nil {
-			if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
-				log.Printf("rollback error: %v", rbErr)
-			}
-		} else {
-			if cmErr := tx.Commit(); cmErr != nil {
-				log.Printf("commit tx error: %v", cmErr)
-				user = nil
-				err = cmErr
-			}
-		}
-	}()
-
 	user, err = s.userRepo.FindByUsername(ctx, username)
+
 	if errors.Is(err, storage.ErrUserNotFound) {
-		var hashedPassword []byte
-		if hashedPassword, err = bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost); err != nil {
+		tx, txErr := s.userRepo.BeginTx(ctx)
+		if txErr != nil {
+			return nil, txErr
+		}
+
+		defer func() {
+			if p := recover(); p != nil {
+				if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+					log.Printf("rollback error: %v", rbErr)
+				}
+				panic(p)
+			} else if err != nil {
+				if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+					log.Printf("rollback error: %v", rbErr)
+				}
+			} else {
+				if cmErr := tx.Commit(); cmErr != nil {
+					log.Printf("commit tx error: %v", cmErr)
+					user = nil
+					err = cmErr
+				}
+			}
+		}()
+
+		user, err = s.userRepo.FindByUsername(ctx, username)
+		if err != nil && !errors.Is(err, storage.ErrUserNotFound) {
 			return nil, err
 		}
-		user = &domain.User{
-			Username:     username,
-			PasswordHash: string(hashedPassword),
-			Coins:        1000,
+
+		if user == nil || errors.Is(err, storage.ErrUserNotFound) {
+			var hashedPassword []byte
+			if hashedPassword, err = bcrypt.GenerateFromPassword([]byte(password), s.bcryptCost); err != nil {
+				return nil, err
+			}
+			user = &domain.User{
+				Username:     username,
+				PasswordHash: string(hashedPassword),
+				Coins:        1000,
+			}
+			if err = s.userRepo.Create(ctx, tx, user); err != nil {
+				return nil, err
+			}
+			return user, nil
 		}
-		if err = s.userRepo.Create(ctx, tx, user); err != nil {
-			return nil, err
-		}
-		return user, nil
-	}
-	if err != nil {
+	} else if err != nil {
 		return nil, err
 	}
 
+	// Проверка пароля
 	if err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		err = ErrInvalidPassword
 		return nil, err

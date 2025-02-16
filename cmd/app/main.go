@@ -7,9 +7,11 @@ import (
 	"avito-backend-intern-winter25/internal/services"
 	"avito-backend-intern-winter25/internal/services/jwt"
 	"avito-backend-intern-winter25/internal/storage/postgres"
+	"context"
 	"database/sql"
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"go.uber.org/zap"
@@ -48,6 +50,21 @@ func main() {
 	//	os.Exit(1)
 	//}
 
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     cfg.Redis.Address,
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.Db,
+	})
+
+	ctx := context.Background()
+	_, err = redisClient.Ping(ctx).Result()
+	if err != nil {
+		logger.Fatal("Failed to connect to Redis", zap.Error(err))
+		os.Exit(1)
+	}
+
+	logger.Info("Connected to Redis")
+
 	db, err := sql.Open("postgres", connectionString)
 	if err != nil {
 		logger.DPanic("Error connecting to database", zap.Error(err))
@@ -63,7 +80,7 @@ func main() {
 	merchRepo := postgres.NewMerchRepository(db)
 	transactionRepo := postgres.NewTransactionRepository(db)
 
-	usrService := services.NewUserService(usrRepo, jwtService)
+	usrService := services.NewUserService(usrRepo, jwtService, redisClient)
 	merchService := services.NewMerchService(merchRepo, purchaseRepo, usrRepo, db)
 	transactionService := services.NewTransactionService(db, usrRepo, transactionRepo)
 

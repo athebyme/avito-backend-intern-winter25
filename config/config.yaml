@@ -14,3 +14,8 @@ postgres:
 jwt:
   secret_key: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   token_lifetime: 24h
+
+redis:
+  addr: "localhost:6379"
+  password: "redis"
+  db: 0

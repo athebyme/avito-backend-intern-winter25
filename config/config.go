@@ -11,12 +11,19 @@ type Config struct {
 	Server   ServerConfig   `yaml:"server"`
 	Postgres PostgresConfig `yaml:"postgres"`
 	JWT      JWTConfig      `yaml:"jwt"`
+	Redis    RedisConfig    `yaml:"redis"`
 }
 
 type ServerConfig struct {
 	Port         int           `yaml:"port"`
 	ReadTimeout  time.Duration `yaml:"read_timeout"`
 	WriteTimeout time.Duration `yaml:"write_timeout"`
+}
+
+type RedisConfig struct {
+	Address  string `yaml:"addr"`
+	Password string `yaml:"password"`
+	Db       int    `yaml:"db"`
 }
 
 type PostgresConfig struct {

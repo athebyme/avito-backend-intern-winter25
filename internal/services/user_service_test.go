@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/go-redis/redismock/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -19,8 +20,9 @@ import (
 func TestNewUserService(t *testing.T) {
 	mockUserRepo := new(mocks.MockUserRepository)
 	mockJWT := new(mocks.MockJWT)
+	redisClient, _ := redismock.NewClientMock()
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	assert.NotNil(t, service)
 }
 
@@ -38,7 +40,9 @@ func TestLogin_NewUser(t *testing.T) {
 	mockUserRepo.On("Create", ctx, mockTx, mock.AnythingOfType("*domain.User")).Return(nil)
 	mockTx.On("Commit").Return(nil)
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisClient, _ := redismock.NewClientMock()
+
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	user, err := service.Login(ctx, username, password)
 
 	require.NoError(t, err)
@@ -54,48 +58,58 @@ func TestLogin_NewUser(t *testing.T) {
 }
 
 func TestLogin_ExistingUser_ValidPassword(t *testing.T) {
+	// arrange
 	mockUserRepo := new(mocks.MockUserRepository)
 	mockJWT := new(mocks.MockJWT)
-	mockTx := new(mocks.MockTx)
-
 	ctx := context.Background()
 	username := "existinguser"
 	password := "password123"
 	passwordHash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 
+	fixedTime := time.Date(2025, 2, 16, 15, 0, 0, 0, time.UTC)
 	existingUser := &domain.User{
 		ID:           1,
 		Username:     username,
 		PasswordHash: string(passwordHash),
 		Coins:        500,
-		CreatedAt:    time.Now(),
+		CreatedAt:    fixedTime,
 	}
 
-	mockUserRepo.On("BeginTx", ctx).Return(mockTx, nil)
-	mockUserRepo.On("FindByUsername", ctx, username).Return(existingUser, nil)
-	mockTx.On("Commit").Return(nil)
+	redisClient, redisMock := redismock.NewClientMock()
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisMock.ExpectGet("user:" + username).RedisNil()
+
+	redisMock.Regexp().ExpectSet("user:"+username, ".*", 30*time.Minute).SetVal("OK")
+
+	mockUserRepo.On("FindByUsername", ctx, username).Return(existingUser, nil)
+
+	// act
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	user, err := service.Login(ctx, username, password)
 
+	// assert
 	require.NoError(t, err)
 	assert.Equal(t, existingUser.ID, user.ID)
 	assert.Equal(t, username, user.Username)
 	assert.Equal(t, 500, user.Coins)
 
+	if err := redisMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet redis expectations: %s", err)
+	}
 	mockUserRepo.AssertExpectations(t)
-	mockTx.AssertExpectations(t)
 }
 
 func TestLogin_ExistingUser_InvalidPassword(t *testing.T) {
+	// arrange
 	mockUserRepo := new(mocks.MockUserRepository)
 	mockJWT := new(mocks.MockJWT)
-	mockTx := new(mocks.MockTx)
 
 	ctx := context.Background()
 	username := "existinguser"
 	correctPassword := "password123"
 	wrongPassword := "wrongpassword"
+
+	fixedTime := time.Date(2025, 2, 16, 15, 0, 0, 0, time.UTC)
 	passwordHash, _ := bcrypt.GenerateFromPassword([]byte(correctPassword), bcrypt.DefaultCost)
 
 	existingUser := &domain.User{
@@ -103,38 +117,56 @@ func TestLogin_ExistingUser_InvalidPassword(t *testing.T) {
 		Username:     username,
 		PasswordHash: string(passwordHash),
 		Coins:        500,
-		CreatedAt:    time.Now(),
+		CreatedAt:    fixedTime,
 	}
 
-	mockUserRepo.On("BeginTx", ctx).Return(mockTx, nil)
-	mockUserRepo.On("FindByUsername", ctx, username).Return(existingUser, nil)
-	mockTx.On("Rollback").Return(nil)
+	redisClient, redisMock := redismock.NewClientMock()
+	redisMock.ExpectGet("user:" + username).RedisNil()
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	mockUserRepo.On("FindByUsername", ctx, username).Return(existingUser, nil)
+
+	// act
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	user, err := service.Login(ctx, username, wrongPassword)
 
+	// assert
 	assert.Nil(t, user)
 	assert.ErrorIs(t, err, ErrInvalidPassword)
 
+	if err := redisMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet redis expectations: %s", err)
+	}
 	mockUserRepo.AssertExpectations(t)
-	mockTx.AssertExpectations(t)
 }
 
 func TestLogin_BeginTxError(t *testing.T) {
+	// arrange
 	mockUserRepo := new(mocks.MockUserRepository)
 	mockJWT := new(mocks.MockJWT)
 
 	ctx := context.Background()
+	username := "username"
+	password := "password"
 	expectedErr := errors.New("db connection error")
 
+	redisClient, redisMock := redismock.NewClientMock()
+
+	redisMock.ExpectGet("user:" + username).RedisNil()
+
+	mockUserRepo.On("FindByUsername", ctx, username).Return(nil, storage.ErrUserNotFound)
 	mockUserRepo.On("BeginTx", ctx).Return(nil, expectedErr)
 
-	service := NewUserService(mockUserRepo, mockJWT)
-	user, err := service.Login(ctx, "username", "password")
+	// act
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
+	user, err := service.Login(ctx, username, password)
 
+	// assert
 	assert.Nil(t, user)
 	assert.ErrorIs(t, err, expectedErr)
 
+	if err := redisMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet redis expectations: %s", err)
+	}
 	mockUserRepo.AssertExpectations(t)
 }
 
@@ -151,7 +183,9 @@ func TestLogin_FindByUsernameError(t *testing.T) {
 	mockUserRepo.On("FindByUsername", ctx, username).Return(nil, expectedErr)
 	mockTx.On("Rollback").Return(nil)
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisClient, _ := redismock.NewClientMock()
+
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	user, err := service.Login(ctx, username, "password")
 
 	assert.Nil(t, user)
@@ -175,7 +209,9 @@ func TestLogin_CreateError(t *testing.T) {
 	mockUserRepo.On("Create", ctx, mockTx, mock.AnythingOfType("*domain.User")).Return(expectedErr)
 	mockTx.On("Rollback").Return(nil)
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisClient, _ := redismock.NewClientMock()
+
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	user, err := service.Login(ctx, username, "password")
 
 	assert.Nil(t, user)
@@ -199,7 +235,9 @@ func TestLogin_CommitError(t *testing.T) {
 	mockUserRepo.On("Create", ctx, mockTx, mock.AnythingOfType("*domain.User")).Return(nil)
 	mockTx.On("Commit").Return(expectedErr)
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisClient, _ := redismock.NewClientMock()
+
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	user, err := service.Login(ctx, username, "password")
 
 	assert.Nil(t, user)
@@ -221,7 +259,9 @@ func TestGenerateToken(t *testing.T) {
 
 	mockJWT.On("GenerateToken", int64(123), "testuser").Return(expectedToken, nil)
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisClient, _ := redismock.NewClientMock()
+
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	token, err := service.GenerateToken(user)
 
 	assert.NoError(t, err)
@@ -242,7 +282,9 @@ func TestGenerateToken_Error(t *testing.T) {
 
 	mockJWT.On("GenerateToken", int64(123), "testuser").Return("", expectedErr)
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisClient, _ := redismock.NewClientMock()
+
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	token, err := service.GenerateToken(user)
 
 	assert.Equal(t, "", token)
@@ -265,7 +307,9 @@ func TestGetUserByID(t *testing.T) {
 
 	mockUserRepo.On("FindByID", ctx, userId).Return(expectedUser, nil)
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisClient, _ := redismock.NewClientMock()
+
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	user, err := service.GetUserByID(ctx, userId)
 
 	assert.NoError(t, err)
@@ -283,7 +327,9 @@ func TestGetUserByID_NotFound(t *testing.T) {
 
 	mockUserRepo.On("FindByID", ctx, userId).Return(nil, storage.ErrUserNotFound)
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisClient, _ := redismock.NewClientMock()
+
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	user, err := service.GetUserByID(ctx, userId)
 
 	assert.Nil(t, user)
@@ -302,7 +348,9 @@ func TestGetUserByID_OtherError(t *testing.T) {
 
 	mockUserRepo.On("FindByID", ctx, userId).Return(nil, expectedErr)
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisClient, _ := redismock.NewClientMock()
+
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	user, err := service.GetUserByID(ctx, userId)
 
 	assert.Nil(t, user)
@@ -325,7 +373,9 @@ func TestGetUserByUsername(t *testing.T) {
 
 	mockUserRepo.On("FindByUsername", ctx, username).Return(expectedUser, nil)
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisClient, _ := redismock.NewClientMock()
+
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	user, err := service.GetUserByUsername(ctx, username)
 
 	assert.NoError(t, err)
@@ -343,7 +393,9 @@ func TestGetUserByUsername_NotFound(t *testing.T) {
 
 	mockUserRepo.On("FindByUsername", ctx, username).Return(nil, storage.ErrUserNotFound)
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisClient, _ := redismock.NewClientMock()
+
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	user, err := service.GetUserByUsername(ctx, username)
 
 	assert.Nil(t, user)
@@ -362,7 +414,9 @@ func TestGetUserByUsername_OtherError(t *testing.T) {
 
 	mockUserRepo.On("FindByUsername", ctx, username).Return(nil, expectedErr)
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisClient, _ := redismock.NewClientMock()
+
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	user, err := service.GetUserByUsername(ctx, username)
 
 	assert.Nil(t, user)
@@ -392,7 +446,9 @@ func TestUpdateUserCoins(t *testing.T) {
 		return u.ID == userId && u.Coins == newCoins
 	})).Return(nil)
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisClient, _ := redismock.NewClientMock()
+
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	err := service.UpdateUserCoins(ctx, userId, newCoins)
 
 	assert.NoError(t, err)
@@ -411,7 +467,9 @@ func TestUpdateUserCoins_BeginTxError(t *testing.T) {
 
 	mockUserRepo.On("BeginTx", ctx).Return(nil, expectedErr)
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisClient, _ := redismock.NewClientMock()
+
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	err := service.UpdateUserCoins(ctx, userId, newCoins)
 
 	assert.ErrorIs(t, err, expectedErr)
@@ -432,7 +490,9 @@ func TestUpdateUserCoins_FindByIDError(t *testing.T) {
 	mockUserRepo.On("BeginTx", ctx).Return(mockTx, nil)
 	mockUserRepo.On("FindByID", ctx, userId).Return(nil, expectedErr)
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisClient, _ := redismock.NewClientMock()
+
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	err := service.UpdateUserCoins(ctx, userId, newCoins)
 
 	assert.ErrorIs(t, err, expectedErr)
@@ -462,7 +522,9 @@ func TestUpdateUserCoins_UpdateError(t *testing.T) {
 		return u.ID == userId && u.Coins == newCoins
 	})).Return(expectedErr)
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisClient, _ := redismock.NewClientMock()
+
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	err := service.UpdateUserCoins(ctx, userId, newCoins)
 
 	assert.ErrorIs(t, err, expectedErr)
@@ -486,7 +548,9 @@ func TestValidateUserBalance_Sufficient(t *testing.T) {
 
 	mockUserRepo.On("FindByID", ctx, userId).Return(user, nil)
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisClient, _ := redismock.NewClientMock()
+
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	sufficient, err := service.ValidateUserBalance(ctx, userId, amount)
 
 	assert.NoError(t, err)
@@ -511,7 +575,9 @@ func TestValidateUserBalance_Insufficient(t *testing.T) {
 
 	mockUserRepo.On("FindByID", ctx, userId).Return(user, nil)
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisClient, _ := redismock.NewClientMock()
+
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	sufficient, err := service.ValidateUserBalance(ctx, userId, amount)
 
 	assert.NoError(t, err)
@@ -531,7 +597,9 @@ func TestValidateUserBalance_Error(t *testing.T) {
 
 	mockUserRepo.On("FindByID", ctx, userId).Return(nil, expectedErr)
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisClient, _ := redismock.NewClientMock()
+
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	sufficient, err := service.ValidateUserBalance(ctx, userId, amount)
 
 	assert.ErrorIs(t, err, expectedErr)
@@ -556,7 +624,9 @@ func TestGetUserBalance(t *testing.T) {
 
 	mockUserRepo.On("FindByID", ctx, userId).Return(user, nil)
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisClient, _ := redismock.NewClientMock()
+
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	coins, err := service.GetUserBalance(ctx, userId)
 
 	assert.NoError(t, err)
@@ -575,7 +645,9 @@ func TestGetUserBalance_Error(t *testing.T) {
 
 	mockUserRepo.On("FindByID", ctx, userId).Return(nil, expectedErr)
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisClient, _ := redismock.NewClientMock()
+
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 	coins, err := service.GetUserBalance(ctx, userId)
 
 	assert.Equal(t, 0, coins)
@@ -598,7 +670,9 @@ func TestLogin_PanicInTransaction(t *testing.T) {
 	})
 	mockTx.On("Rollback").Return(nil)
 
-	service := NewUserService(mockUserRepo, mockJWT)
+	redisClient, _ := redismock.NewClientMock()
+
+	service := NewUserService(mockUserRepo, mockJWT, redisClient)
 
 	assert.Panics(t, func() {
 		_, _ = service.Login(ctx, username, "password")
@@ -670,8 +744,9 @@ func BenchmarkUserService_Login(b *testing.B) {
 
 	repo := &dummyUserRepository{hashedPassword: string(hashed)}
 	jwtSvc := dummyJWT{}
+	redisClient, _ := redismock.NewClientMock()
 
-	userSvc := NewUserService(repo, jwtSvc)
+	userSvc := NewUserService(repo, jwtSvc, redisClient)
 
 	b.ResetTimer()
 	b.ReportAllocs()

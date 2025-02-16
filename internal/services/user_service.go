@@ -6,9 +6,12 @@ import (
 	"avito-backend-intern-winter25/internal/storage"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"github.com/go-redis/redis/v8"
 	"golang.org/x/crypto/bcrypt"
 	"log"
+	"time"
 )
 
 var (
@@ -17,20 +20,31 @@ var (
 )
 
 type UserService struct {
-	userRepo   storage.UserRepository
-	jwtService jwt.JWT
-	bcryptCost int
+	userRepo    storage.UserRepository
+	jwtService  jwt.JWT
+	bcryptCost  int
+	redisClient *redis.Client
+	cacheTTL    time.Duration
 }
 
-func NewUserService(userRepo storage.UserRepository, jwtService jwt.JWT) *UserService {
+func NewUserService(userRepo storage.UserRepository, jwtService jwt.JWT, redisClient *redis.Client) *UserService {
 	return &UserService{
-		userRepo:   userRepo,
-		jwtService: jwtService,
-		bcryptCost: 6,
+		userRepo:    userRepo,
+		jwtService:  jwtService,
+		bcryptCost:  4,
+		redisClient: redisClient,
+		cacheTTL:    30 * time.Minute,
 	}
 }
 
 func (s *UserService) Login(ctx context.Context, username, password string) (user *domain.User, err error) {
+	cachedUser, err := s.getCachedUser(ctx, username)
+	if err == nil && cachedUser != nil {
+		if err = bcrypt.CompareHashAndPassword([]byte(cachedUser.PasswordHash), []byte(password)); err == nil {
+			return cachedUser, nil
+		}
+	}
+
 	user, err = s.userRepo.FindByUsername(ctx, username)
 
 	if errors.Is(err, storage.ErrUserNotFound) {
@@ -76,16 +90,22 @@ func (s *UserService) Login(ctx context.Context, username, password string) (use
 			if err = s.userRepo.Create(ctx, tx, user); err != nil {
 				return nil, err
 			}
+			if cacheErr := s.cacheUser(ctx, user); cacheErr != nil {
+				log.Printf("Failed to cache new user: %v", cacheErr)
+			}
 			return user, nil
 		}
 	} else if err != nil {
 		return nil, err
 	}
 
-	// Проверка пароля
 	if err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		err = ErrInvalidPassword
 		return nil, err
+	}
+
+	if cacheErr := s.cacheUser(ctx, user); cacheErr != nil {
+		log.Printf("Failed to cache user: %v", cacheErr)
 	}
 
 	return user, nil
@@ -145,4 +165,32 @@ func (s *UserService) GetUserBalance(ctx context.Context, userID int64) (int, er
 		return 0, err
 	}
 	return user.Coins, nil
+}
+
+func (s *UserService) getCachedUser(ctx context.Context, username string) (*domain.User, error) {
+	val, err := s.redisClient.Get(ctx, "user:"+username).Result()
+	if errors.Is(err, redis.Nil) {
+		return nil, nil
+	} else if err != nil {
+		log.Printf("Redis error: %v", err)
+		return nil, err
+	}
+
+	var user domain.User
+	if err := json.Unmarshal([]byte(val), &user); err != nil {
+		log.Printf("Failed to unmarshal user from cache: %v", err)
+		return nil, err
+	}
+
+	return &user, nil
+}
+
+func (s *UserService) cacheUser(ctx context.Context, user *domain.User) error {
+	userData, err := json.Marshal(user)
+	if err != nil {
+		log.Printf("Failed to marshal user for cache: %v", err)
+		return err
+	}
+
+	return s.redisClient.Set(ctx, "user:"+user.Username, userData, s.cacheTTL).Err()
 }

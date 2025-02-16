@@ -1,21 +1,21 @@
-server:
-  port: 8080
-  read_timeout: 5s
-  write_timeout: 10s
+  server:
+    port: 8080
+    read_timeout: 5s
+    write_timeout: 10s
 
-postgres:
-  host: "db"
-  port: 5432
-  username: "postgres"
-  password: "password"
-  db_name: "shop"
-  ssl_mode: "disable"
+  postgres:
+    host: "db"
+    port: 5432
+    username: "postgres"
+    password: "password"
+    db_name: "shop"
+    ssl_mode: "disable"
 
-jwt:
-  secret_key: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-  token_lifetime: 24h
+  jwt:
+    secret_key: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    token_lifetime: 24h
 
-redis:
-  addr: "localhost:6379"
-  password: "redis"
-  db: 0
+  redis:
+    addr: "redis:6379"
+    password: "redis"
+    db: 0

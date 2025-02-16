@@ -7,8 +7,10 @@ import (
 	"avito-backend-intern-winter25/internal/services"
 	"avito-backend-intern-winter25/internal/services/jwt"
 	"errors"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
 	"net/http"
 )
 
@@ -16,21 +18,30 @@ type Handler struct {
 	userService        *services.UserService
 	merchService       *services.MerchService
 	transactionService *services.TransactionService
+	logger             zap.Logger
 }
 
 func NewHandler(
 	userService *services.UserService,
 	merchService *services.MerchService,
 	transactionService *services.TransactionService,
+	writer zap.Logger,
 ) *Handler {
 	return &Handler{
 		userService:        userService,
 		merchService:       merchService,
 		transactionService: transactionService,
+		logger:             writer,
 	}
 }
 
 func (h *Handler) SetupRoutes(r *gin.Engine, jwtService *jwt.Service) {
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Println("Recovered from panic in SetupRoutes:", err)
+		}
+	}()
+
 	api := r.Group("/api")
 	{
 		api.POST("/auth", h.Auth)
@@ -45,7 +56,10 @@ func (h *Handler) SetupRoutes(r *gin.Engine, jwtService *jwt.Service) {
 			secured.GET("/buy/:item", h.BuyItem)
 		}
 	}
+
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	r.GET("/health", h.Health)
+	h.logger.Info("Routes setup complete.")
 }
 
 func (h *Handler) Auth(c *gin.Context) {
@@ -68,6 +82,10 @@ func (h *Handler) Auth(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"token": token})
+}
+
+func (h *Handler) Health(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 func (h *Handler) GetInfo(c *gin.Context) {

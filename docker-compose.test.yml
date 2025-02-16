@@ -3,14 +3,6 @@ services:
   avito-shop-service-test:
     build: .
     container_name: avito-shop-service-test
-    ports:
-      - "8080:8080"
-    environment:
-      - DATABASE_HOST=db
-      - DATABASE_PORT=5432
-      - DATABASE_USER=postgres
-      - DATABASE_PASSWORD=password
-      - DATABASE_NAME=shop
     depends_on:
       db:
         condition: service_healthy
@@ -28,31 +20,45 @@ services:
       POSTGRES_DB: shop
     volumes:
       - pgdata_test:/var/lib/postgresql/data
-      # - ./migrations:/docker-entrypoint-initdb.d
+      - ./migrations:/docker-entrypoint-initdb.d
     ports:
-      - "5433:5433"
+      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d shop"]
       interval: 5s
       timeout: 10s
       retries: 5
-      start_period: 10s
     networks:
       - internal
 
   redis:
     image: redis:7
     container_name: redis-test
-    command: redis-server --requirepass redis
+    command: redis-server --requirepass redis --bind 0.0.0.0
+    environment:
+      - REDIS_PASSWORD=redis
     ports:
       - "6379:6379"
     networks:
       - internal
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "redis", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
+
+  e2e-tests:
+    image: golang:1.23
+    container_name: e2e-tests
+    working_dir: /app
+    volumes:
+      - ./:/app
+    command: go test -v ./internal/services/e2e
+    depends_on:
+      avito-shop-service-test:
+        condition: service_started
+    networks:
+      - internal
 
 networks:
   internal:

@@ -40,16 +40,6 @@ func main() {
 	jwtService := jwt.NewService(cfg.JWT.SecretKey, cfg.JWT.TokenLifetime)
 	connectionString := cfg.Postgres.GetConnectionString()
 
-	//m, err := migrate.New(migrationDir, connectionString)
-	//if err != nil {
-	//	logger.Error("Error creating migration", zap.Error(err))
-	//	os.Exit(1)
-	//}
-	//if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-	//	logger.Error("Error running migration", zap.Error(err))
-	//	os.Exit(1)
-	//}
-
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:     cfg.Redis.Address,
 		Password: cfg.Redis.Password,
@@ -84,9 +74,9 @@ func main() {
 	merchService := services.NewMerchService(merchRepo, purchaseRepo, usrRepo, db)
 	transactionService := services.NewTransactionService(db, usrRepo, transactionRepo)
 
-	handler := handlers.NewHandler(usrService, merchService, transactionService)
+	handler := handlers.NewHandler(usrService, merchService, transactionService, *logger)
 
-	r := gin.New()
+	r := gin.Default()
 	r.Use(
 		middleware.Logging(logger),
 		middleware.Prometheus(),

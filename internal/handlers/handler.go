@@ -174,5 +174,5 @@ func (h *Handler) Balance(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, balance)
+	c.JSON(http.StatusOK, gin.H{"balance": balance})
 }

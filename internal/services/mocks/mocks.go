@@ -188,12 +188,16 @@ type MockRedisClient struct {
 
 func (m *MockRedisClient) Get(ctx context.Context, key string) *redis.StringCmd {
 	args := m.Called(ctx, key)
-	cmd := redis.NewStringResult(args.String(0), args.Error(1))
-	return cmd
+	if cmd, ok := args.Get(0).(*redis.StringCmd); ok {
+		return cmd
+	}
+	return redis.NewStringResult("", redis.Nil)
 }
 
 func (m *MockRedisClient) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd {
 	args := m.Called(ctx, key, value, expiration)
-	cmd := redis.NewStatusResult(args.String(0), args.Error(1))
-	return cmd
+	if cmd, ok := args.Get(0).(*redis.StatusCmd); ok {
+		return cmd
+	}
+	return redis.NewStatusResult("OK", nil)
 }

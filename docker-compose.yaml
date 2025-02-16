@@ -70,6 +70,18 @@ services:
       - internal
     depends_on:
       - avito-shop-service
+  e2e-tests:
+    image: golang:1.23
+    container_name: e2e-tests
+    working_dir: /app
+    volumes:
+      - ./:/app
+    command: go test -v ./internal/services/tests/service_tests && go test -v ./internal/services/tests/e2e
+    depends_on:
+      avito-shop-service:
+        condition: service_started
+    networks:
+      - internal
 
 networks:
   internal:

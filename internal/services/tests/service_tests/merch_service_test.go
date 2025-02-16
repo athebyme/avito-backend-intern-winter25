@@ -1,7 +1,8 @@
-package services
+package service_tests
 
 import (
 	"avito-backend-intern-winter25/internal/models/domain"
+	"avito-backend-intern-winter25/internal/services"
 	"avito-backend-intern-winter25/internal/services/mocks"
 	"avito-backend-intern-winter25/internal/storage"
 	"context"
@@ -50,7 +51,7 @@ func TestMerchService_PurchaseItem_Success(t *testing.T) {
 		return p.UserID == userID && p.Item == itemName && p.Price == 100
 	})).Return(nil)
 
-	service := NewMerchService(merchRepo, purchaseRepo, userRepo, db)
+	service := services.NewMerchService(merchRepo, purchaseRepo, userRepo, db)
 
 	err = service.PurchaseItem(context.Background(), userID, itemName)
 
@@ -91,12 +92,12 @@ func TestMerchService_PurchaseItem_InsufficientCoins(t *testing.T) {
 	merchRepo.On("FindByName", mock.Anything, itemName).Return(item, nil)
 	userRepo.On("FindByID", mock.Anything, userID).Return(user, nil)
 
-	service := NewMerchService(merchRepo, purchaseRepo, userRepo, db)
+	service := services.NewMerchService(merchRepo, purchaseRepo, userRepo, db)
 
 	err = service.PurchaseItem(context.Background(), userID, itemName)
 
 	// assert
-	assert.ErrorIs(t, err, ErrInsufficientCoins)
+	assert.ErrorIs(t, err, services.ErrInsufficientCoins)
 	merchRepo.AssertExpectations(t)
 	userRepo.AssertExpectations(t)
 	assert.NoError(t, mockDB.ExpectationsWereMet())
@@ -121,7 +122,7 @@ func TestMerchService_PurchaseItem_ItemNotFound(t *testing.T) {
 	// ACT
 	merchRepo.On("FindByName", mock.Anything, itemName).Return(nil, storage.ErrMerchNotFound)
 
-	service := NewMerchService(merchRepo, purchaseRepo, userRepo, db)
+	service := services.NewMerchService(merchRepo, purchaseRepo, userRepo, db)
 
 	err = service.PurchaseItem(context.Background(), userID, itemName)
 
@@ -158,7 +159,7 @@ func TestMerchService_PurchaseItem_UserNotFound(t *testing.T) {
 	merchRepo.On("FindByName", mock.Anything, itemName).Return(item, nil)
 	userRepo.On("FindByID", mock.Anything, userID).Return(nil, sql.ErrNoRows)
 
-	service := NewMerchService(merchRepo, purchaseRepo, userRepo, db)
+	service := services.NewMerchService(merchRepo, purchaseRepo, userRepo, db)
 
 	err = service.PurchaseItem(context.Background(), userID, itemName)
 
@@ -204,7 +205,7 @@ func TestMerchService_PurchaseItem_UpdateUserError(t *testing.T) {
 		return u.ID == userID && u.Coins == 100
 	})).Return(updateErr)
 
-	service := NewMerchService(merchRepo, purchaseRepo, userRepo, db)
+	service := services.NewMerchService(merchRepo, purchaseRepo, userRepo, db)
 
 	err = service.PurchaseItem(context.Background(), userID, itemName)
 
@@ -254,7 +255,7 @@ func TestMerchService_PurchaseItem_CreatePurchaseError(t *testing.T) {
 		return p.UserID == userID && p.Item == itemName && p.Price == 100
 	})).Return(createErr)
 
-	service := NewMerchService(merchRepo, purchaseRepo, userRepo, db)
+	service := services.NewMerchService(merchRepo, purchaseRepo, userRepo, db)
 
 	err = service.PurchaseItem(context.Background(), userID, itemName)
 
@@ -305,7 +306,7 @@ func TestMerchService_PurchaseItem_CommitError(t *testing.T) {
 		return p.UserID == userID && p.Item == itemName && p.Price == 100
 	})).Return(nil)
 
-	service := NewMerchService(merchRepo, purchaseRepo, userRepo, db)
+	service := services.NewMerchService(merchRepo, purchaseRepo, userRepo, db)
 
 	err = service.PurchaseItem(context.Background(), userID, itemName)
 
@@ -341,7 +342,7 @@ func TestMerchService_GetPurchasesByUser_Success(t *testing.T) {
 	// act
 	purchaseRepo.On("GetByUser", mock.Anything, mock.Anything, userID).Return(purchases, nil)
 
-	service := NewMerchService(merchRepo, purchaseRepo, userRepo, db)
+	service := services.NewMerchService(merchRepo, purchaseRepo, userRepo, db)
 
 	result, err := service.GetPurchasesByUser(context.Background(), userID)
 
@@ -367,7 +368,7 @@ func TestMerchService_GetPurchasesByUser_BeginTxError(t *testing.T) {
 
 	userID := int64(1)
 
-	service := NewMerchService(merchRepo, purchaseRepo, userRepo, db)
+	service := services.NewMerchService(merchRepo, purchaseRepo, userRepo, db)
 
 	// act
 	_, err = service.GetPurchasesByUser(context.Background(), userID)
@@ -398,7 +399,7 @@ func TestMerchService_GetPurchasesByUser_RepositoryError(t *testing.T) {
 	// act
 	purchaseRepo.On("GetByUser", mock.Anything, mock.Anything, userID).Return(nil, repoErr)
 
-	service := NewMerchService(merchRepo, purchaseRepo, userRepo, db)
+	service := services.NewMerchService(merchRepo, purchaseRepo, userRepo, db)
 
 	_, err = service.GetPurchasesByUser(context.Background(), userID)
 
@@ -427,7 +428,7 @@ func TestMerchService_GetAllAvailableMerch_Success(t *testing.T) {
 	// act
 	merchRepo.On("GetAllAvailableMerch", mock.Anything).Return(merch, nil)
 
-	service := NewMerchService(merchRepo, purchaseRepo, userRepo, db)
+	service := services.NewMerchService(merchRepo, purchaseRepo, userRepo, db)
 
 	result, err := service.GetAllAvailableMerch(context.Background())
 
@@ -452,7 +453,7 @@ func TestMerchService_GetAllAvailableMerch_RepositoryError(t *testing.T) {
 	// act
 	merchRepo.On("GetAllAvailableMerch", mock.Anything).Return(nil, repoErr)
 
-	service := NewMerchService(merchRepo, purchaseRepo, userRepo, db)
+	service := services.NewMerchService(merchRepo, purchaseRepo, userRepo, db)
 
 	_, err = service.GetAllAvailableMerch(context.Background())
 
@@ -497,7 +498,7 @@ func BenchmarkPurchaseItem(b *testing.B) {
 				return p.UserID == userID && p.Item == itemName && p.Price == 100
 			})).Return(nil)
 
-			service := NewMerchService(merchRepo, purchaseRepo, userRepo, db)
+			service := services.NewMerchService(merchRepo, purchaseRepo, userRepo, db)
 			err = service.PurchaseItem(context.Background(), userID, itemName)
 			if err != nil {
 				b.Error(err)

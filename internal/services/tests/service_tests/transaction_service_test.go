@@ -1,7 +1,8 @@
-package services
+package service_tests
 
 import (
 	"avito-backend-intern-winter25/internal/models/domain"
+	"avito-backend-intern-winter25/internal/services"
 	"avito-backend-intern-winter25/internal/services/mocks"
 	"context"
 	"errors"
@@ -23,7 +24,7 @@ func TestTransferCoins_BeginTxError(t *testing.T) {
 	userRepo := new(mocks.MockUserRepository)
 	transactionRepo := new(mocks.MockTransactionRepository)
 
-	service := NewTransactionService(db, userRepo, transactionRepo)
+	service := services.NewTransactionService(db, userRepo, transactionRepo)
 	err = service.TransferCoins(context.Background(), 1, 2, 100)
 	assert.ErrorIs(t, err, expectedErr)
 
@@ -46,7 +47,7 @@ func TestTransferCoins_FindFromUserError(t *testing.T) {
 	transactionRepo := new(mocks.MockTransactionRepository)
 	mockDB.ExpectRollback()
 
-	service := NewTransactionService(db, userRepo, transactionRepo)
+	service := services.NewTransactionService(db, userRepo, transactionRepo)
 	err = service.TransferCoins(context.Background(), 1, 2, 100)
 	assert.ErrorIs(t, err, expectedErr)
 
@@ -74,7 +75,7 @@ func TestTransferCoins_FindToUserError(t *testing.T) {
 	transactionRepo := new(mocks.MockTransactionRepository)
 	mockDB.ExpectRollback()
 
-	service := NewTransactionService(db, userRepo, transactionRepo)
+	service := services.NewTransactionService(db, userRepo, transactionRepo)
 	err = service.TransferCoins(context.Background(), 1, 2, 100)
 	assert.ErrorIs(t, err, expectedErr)
 
@@ -102,9 +103,9 @@ func TestTransferCoins_InsufficientFunds(t *testing.T) {
 	transactionRepo := new(mocks.MockTransactionRepository)
 	mockDB.ExpectRollback()
 
-	service := NewTransactionService(db, userRepo, transactionRepo)
+	service := services.NewTransactionService(db, userRepo, transactionRepo)
 	err = service.TransferCoins(context.Background(), 1, 2, 100)
-	assert.ErrorIs(t, err, ErrLackOfFundsOnAccount)
+	assert.ErrorIs(t, err, services.ErrLackOfFundsOnAccount)
 
 	userRepo.AssertExpectations(t)
 	assert.NoError(t, mockDB.ExpectationsWereMet())
@@ -135,7 +136,7 @@ func TestTransferCoins_UpdateFromUserError(t *testing.T) {
 	transactionRepo := new(mocks.MockTransactionRepository)
 	mockDB.ExpectRollback()
 
-	service := NewTransactionService(db, userRepo, transactionRepo)
+	service := services.NewTransactionService(db, userRepo, transactionRepo)
 	err = service.TransferCoins(context.Background(), 1, 2, 100)
 	assert.ErrorIs(t, err, expectedErr)
 
@@ -171,7 +172,7 @@ func TestTransferCoins_UpdateToUserError(t *testing.T) {
 	transactionRepo := new(mocks.MockTransactionRepository)
 	mockDB.ExpectRollback()
 
-	service := NewTransactionService(db, userRepo, transactionRepo)
+	service := services.NewTransactionService(db, userRepo, transactionRepo)
 	err = service.TransferCoins(context.Background(), 1, 2, 100)
 	assert.ErrorIs(t, err, expectedErr)
 
@@ -210,7 +211,7 @@ func TestTransferCoins_CreateTransactionError(t *testing.T) {
 
 	mockDB.ExpectRollback()
 
-	service := NewTransactionService(db, userRepo, transactionRepo)
+	service := services.NewTransactionService(db, userRepo, transactionRepo)
 	err = service.TransferCoins(context.Background(), 1, 2, 100)
 	assert.ErrorIs(t, err, expectedErr)
 
@@ -251,7 +252,7 @@ func TestTransferCoins_CommitError(t *testing.T) {
 	commitError := errors.New("commit error")
 	mockDB.ExpectCommit().WillReturnError(commitError)
 
-	service := NewTransactionService(db, userRepo, transactionRepo)
+	service := services.NewTransactionService(db, userRepo, transactionRepo)
 	err = service.TransferCoins(context.Background(), 1, 2, 100)
 	assert.ErrorIs(t, err, commitError)
 
@@ -292,7 +293,7 @@ func TestTransferCoins_Success(t *testing.T) {
 
 	mockDB.ExpectCommit()
 
-	service := NewTransactionService(db, userRepo, transactionRepo)
+	service := services.NewTransactionService(db, userRepo, transactionRepo)
 	err = service.TransferCoins(context.Background(), 1, 2, 100)
 	assert.NoError(t, err)
 
@@ -312,7 +313,7 @@ func TestGetSentTransactions_Success(t *testing.T) {
 		On("GetSentTransactions", ctx, userID).
 		Return(expectedTransactions, nil)
 
-	service := NewTransactionService(nil, nil, transactionRepo)
+	service := services.NewTransactionService(nil, nil, transactionRepo)
 	transactions, err := service.GetSentTransactions(ctx, userID)
 	assert.NoError(t, err)
 	assert.Equal(t, expectedTransactions, transactions)
@@ -328,7 +329,7 @@ func TestGetSentTransactions_Error(t *testing.T) {
 		On("GetSentTransactions", ctx, userID).
 		Return(nil, expectedErr)
 
-	service := NewTransactionService(nil, nil, transactionRepo)
+	service := services.NewTransactionService(nil, nil, transactionRepo)
 	transactions, err := service.GetSentTransactions(ctx, userID)
 	assert.ErrorIs(t, err, expectedErr)
 	assert.Nil(t, transactions)
@@ -346,7 +347,7 @@ func TestGetReceivedTransactions_Success(t *testing.T) {
 		On("GetReceivedTransactions", ctx, userID).
 		Return(expectedTransactions, nil)
 
-	service := NewTransactionService(nil, nil, transactionRepo)
+	service := services.NewTransactionService(nil, nil, transactionRepo)
 	transactions, err := service.GetReceivedTransactions(ctx, userID)
 	assert.NoError(t, err)
 	assert.Equal(t, expectedTransactions, transactions)
@@ -362,7 +363,7 @@ func TestGetReceivedTransactions_Error(t *testing.T) {
 		On("GetReceivedTransactions", ctx, userID).
 		Return(nil, expectedErr)
 
-	service := NewTransactionService(nil, nil, transactionRepo)
+	service := services.NewTransactionService(nil, nil, transactionRepo)
 	transactions, err := service.GetReceivedTransactions(ctx, userID)
 	assert.ErrorIs(t, err, expectedErr)
 	assert.Nil(t, transactions)

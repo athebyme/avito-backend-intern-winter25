@@ -33,7 +33,7 @@ func (r *TransactionRepository) Create(ctx context.Context, tx storage.Tx, trans
 
 func (r *TransactionRepository) GetSentTransactions(ctx context.Context, userID int64) ([]*domain.CoinTransaction, error) {
 	if userID < 0 {
-		return nil, storage.ErrInvalidUserId
+		return nil, storage.ErrInvalidUserID
 	}
 
 	query := `

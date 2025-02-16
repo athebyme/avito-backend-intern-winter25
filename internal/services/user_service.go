@@ -14,6 +14,11 @@ import (
 	"time"
 )
 
+type RedisClient interface {
+	Get(ctx context.Context, key string) *redis.StringCmd
+	Set(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd
+}
+
 var (
 	ErrInvalidPassword = errors.New("invalid password")
 	ErrUserNotFound    = errors.New("user not found")
@@ -23,11 +28,11 @@ type UserService struct {
 	userRepo    storage.UserRepository
 	jwtService  jwt.JWT
 	bcryptCost  int
-	redisClient *redis.Client
+	redisClient RedisClient
 	cacheTTL    time.Duration
 }
 
-func NewUserService(userRepo storage.UserRepository, jwtService jwt.JWT, redisClient *redis.Client) *UserService {
+func NewUserService(userRepo storage.UserRepository, jwtService jwt.JWT, redisClient RedisClient) *UserService {
 	return &UserService{
 		userRepo:    userRepo,
 		jwtService:  jwtService,

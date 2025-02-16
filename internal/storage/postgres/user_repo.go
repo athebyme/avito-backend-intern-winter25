@@ -49,8 +49,7 @@ func (r *UserRepository) FindByID(ctx context.Context, id int64) (*domain.User, 
         SELECT id, username, password_hash, coins, created_at
         FROM users WHERE id = $1
     `
-	var row *sql.Row
-	row = r.db.QueryRowContext(ctx, query, id)
+	row := r.db.QueryRowContext(ctx, query, id)
 
 	var user domain.User
 	err := row.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Coins, &user.CreatedAt)

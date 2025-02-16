@@ -1,0 +1,10 @@
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - revive
+run:
+  timeout: 2m
+issues:
+  max-same-issues: 10

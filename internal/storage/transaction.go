@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	ErrInvalidUserId = errors.New("invalid user id")
+	ErrInvalidUserID = errors.New("invalid user id")
 )
 
 type TransactionRepository interface {

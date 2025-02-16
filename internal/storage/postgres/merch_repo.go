@@ -30,7 +30,7 @@ func (r *MerchRepository) FindByName(ctx context.Context, name string) (*domain.
 	var result domain.Merch
 
 	row := r.db.QueryRowContext(ctx, query, name)
-	err := row.Scan(&result.Id, &result.Name, &result.Price)
+	err := row.Scan(&result.ID, &result.Name, &result.Price)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return &domain.Merch{}, storage.ErrMerchNotFound

@@ -31,7 +31,7 @@ func TestMerchService_PurchaseItem_Success(t *testing.T) {
 	userID := int64(1)
 	itemName := "T-Shirt"
 	item := &domain.Merch{
-		Id:    1,
+		ID:    1,
 		Name:  itemName,
 		Price: 100,
 	}
@@ -78,7 +78,7 @@ func TestMerchService_PurchaseItem_InsufficientCoins(t *testing.T) {
 	userID := int64(1)
 	itemName := "Expensive T-Shirt"
 	item := &domain.Merch{
-		Id:    1,
+		ID:    1,
 		Name:  itemName,
 		Price: 200,
 	}
@@ -149,7 +149,7 @@ func TestMerchService_PurchaseItem_UserNotFound(t *testing.T) {
 	userID := int64(999)
 	itemName := "T-Shirt"
 	item := &domain.Merch{
-		Id:    1,
+		ID:    1,
 		Name:  itemName,
 		Price: 100,
 	}
@@ -187,7 +187,7 @@ func TestMerchService_PurchaseItem_UpdateUserError(t *testing.T) {
 	userID := int64(1)
 	itemName := "T-Shirt"
 	item := &domain.Merch{
-		Id:    1,
+		ID:    1,
 		Name:  itemName,
 		Price: 100,
 	}
@@ -234,7 +234,7 @@ func TestMerchService_PurchaseItem_CreatePurchaseError(t *testing.T) {
 	userID := int64(1)
 	itemName := "T-Shirt"
 	item := &domain.Merch{
-		Id:    1,
+		ID:    1,
 		Name:  itemName,
 		Price: 100,
 	}
@@ -286,7 +286,7 @@ func TestMerchService_PurchaseItem_CommitError(t *testing.T) {
 	userID := int64(1)
 	itemName := "T-Shirt"
 	item := &domain.Merch{
-		Id:    1,
+		ID:    1,
 		Name:  itemName,
 		Price: 100,
 	}
@@ -420,8 +420,8 @@ func TestMerchService_GetAllAvailableMerch_Success(t *testing.T) {
 	userRepo := new(mocks.MockUserRepository)
 
 	merch := []*domain.Merch{
-		{Id: 1, Name: "T-Shirt", Price: 100},
-		{Id: 2, Name: "Mug", Price: 50},
+		{ID: 1, Name: "T-Shirt", Price: 100},
+		{ID: 2, Name: "Mug", Price: 50},
 	}
 
 	// act
@@ -482,7 +482,7 @@ func BenchmarkPurchaseItem(b *testing.B) {
 			userRepo := new(mocks.MockUserRepository)
 
 			merchRepo.On("FindByName", mock.Anything, itemName).Return(&domain.Merch{
-				Id:    1,
+				ID:    1,
 				Name:  itemName,
 				Price: 100,
 			}, nil)

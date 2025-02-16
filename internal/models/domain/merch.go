@@ -1,7 +1,7 @@
 package domain
 
 type Merch struct {
-	Id    int
+	ID    int
 	Name  string
 	Price int
 }
